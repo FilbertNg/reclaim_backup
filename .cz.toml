@@ -1,0 +1,10 @@
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+version_files = [
+    # Backend files
+    "backend/pyproject.toml:version",
+    "backend/reclaim/__init__.py",
+    # Frontend files
+    # "frontend/package.json:version"
+]

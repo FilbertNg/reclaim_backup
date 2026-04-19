@@ -1,0 +1,18 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.136.0",
+    "ipykernel>=7.2.0",
+    "jupyter>=1.1.1",
+    "langchain>=1.2.15",
+    "langchain-text-splitters>=1.1.2",
+    "langgraph>=1.1.8",
+    "langsmith>=0.7.32",
+    "pydantic>=2.13.2",
+    "pymupdf4llm>=1.27.2.2",
+    "uvicorn>=0.44.0",
+]

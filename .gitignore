@@ -34,3 +34,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uv
+*/.venv
+
+# testing
+**/test
+backend/md_plans
