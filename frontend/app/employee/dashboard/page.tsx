@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@/context/AuthContext";
-import { Clock, CheckCircle2, AlertTriangle, ScanLine, ArrowRight } from "lucide-react";
+import { Clock, CheckCircle2, Banknote, ScanLine, ArrowRight } from "lucide-react";
 
 import SideNav            from "./_components/SideNav";
 import TopNav             from "./_components/TopNav";
@@ -97,8 +97,8 @@ export default function EmployeeDashboardPage() {
               label="Already Paid"
               value="$450.00"
               subtext="2 claims paid"
-              icon={AlertTriangle}
-              variant="action"
+              icon={Banknote}
+              variant="paid"
             />
           </section>
 
