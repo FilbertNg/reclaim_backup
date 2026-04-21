@@ -40,13 +40,13 @@ export default function EmployeeDashboardPage() {
          */}
         <main
           id="main-content"
-          className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12 pb-20 lg:pb-8 bg-surface"
+          className="flex-1 overflow-y-auto px-4 pt-6 pb-20 md:p-8 lg:p-12 lg:pb-8 bg-surface"
         >
 
           {/* ── 1. Hero greeting ──────────────────── */}
           <section
             aria-label="Welcome section"
-            className="mb-8 md:mb-10 relative"
+            className="mb-6 md:mb-10 relative"
           >
             {/* Background gradient decorative element */}
             <div className="absolute -top-12 -left-12 w-64 h-64 bg-linear-to-br from-[#4647D3]/20 to-[#9E00B4]/10 rounded-full blur-3xl pointer-events-none z-0"></div>
@@ -79,7 +79,7 @@ export default function EmployeeDashboardPage() {
            */}
           <section
             aria-label="Key metrics"
-            className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6 mb-8 md:mb-10"
+            className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6 mb-6 md:mb-10"
           >
             <StatCard
               label="Awaiting Review"

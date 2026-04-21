@@ -20,7 +20,7 @@ export default function BottomNav() {
       aria-label="Mobile bottom navigation"
       className="lg:hidden fixed bottom-0 inset-x-0 z-50 bg-white/85 backdrop-blur-2xl border-t border-outline-variant/10 rounded-t-3xl shadow-[0_-8px_32px_rgba(0,0,0,0.06)]"
     >
-      <div className="flex justify-around items-center px-2 pt-3 pb-6 h-[72px] max-w-lg mx-auto">
+      <div className="flex justify-around items-center px-2 py-3 h-16 max-w-lg mx-auto">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href || pathname.startsWith(`${href}/`);
           return (
