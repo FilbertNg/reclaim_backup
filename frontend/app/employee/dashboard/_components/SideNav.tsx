@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   FileText,
   History,
-  BarChart2,
   Settings,
   LifeBuoy,
   LogOut,
@@ -17,9 +16,8 @@ import {
 
 const NAV_LINKS = [
   { href: "/employee/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/employee/claims",    label: "My Claims",  icon: FileText         },
+  { href: "/employee/claims",    label: "Upload Claim",  icon: FileText         },
   { href: "/employee/history",   label: "History",    icon: History          },
-  { href: "/employee/analytics", label: "Analytics",  icon: BarChart2        },
   { href: "/employee/settings",  label: "Settings",   icon: Settings         },
 ];
 
@@ -37,26 +35,14 @@ export default function SideNav() {
         {/* ── Brand ─────────────────────────────────── */}
         <div className="px-4 py-5 mb-3">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-linear-to-br from-primary to-tertiary flex items-center justify-center shrink-0 shadow-[0_4px_12px_rgba(70,71,211,0.3)]">
-              <Zap className="w-4 h-4 text-white fill-white" strokeWidth={2.5} />
-            </div>
             <h1 className="font-headline font-black text-xl text-primary tracking-tight">
               Reclaim
             </h1>
           </div>
-          <p className="font-body text-xs font-medium text-on-surface-variant mt-1.5 ml-[42px]">
+          <p className="font-body text-xs font-medium text-on-surface-variant mt-1.5">
             Employee Portal
           </p>
         </div>
-
-        {/* ── New Claim CTA ─────────────────────────── */}
-        <button
-          id="sidenav-new-claim-btn"
-          className="mx-4 mb-5 py-3 px-5 bg-linear-to-r from-primary to-primary-dim text-on-primary rounded-xl font-body font-semibold text-sm flex items-center justify-center gap-2 hover:shadow-[0_6px_24px_-4px_rgba(70,71,211,0.45)] active:scale-[0.97] transition-all duration-300"
-        >
-          <Plus className="w-4 h-4" strokeWidth={2.5} />
-          New Claim
-        </button>
 
         {/* ── Navigation Links ──────────────────────── */}
         <div className="flex-1 flex flex-col gap-0.5 overflow-y-auto">
