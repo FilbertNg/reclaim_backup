@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
-  FileText,
+  FileSliders,
   History,
   Settings,
   LifeBuoy,
@@ -16,7 +16,7 @@ import {
 
 const NAV_LINKS = [
   { href: "/hr/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/hr/claims",    label: "Upload Claim",  icon: FileText         },
+  { href: "/hr/claims",    label: "Policy Studio",  icon: FileSliders         },
   { href: "/hr/history",   label: "History",    icon: History          },
   { href: "/hr/settings",  label: "Settings",   icon: Settings         },
 ];
