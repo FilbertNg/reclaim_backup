@@ -2,7 +2,7 @@
 from pathlib import Path
 from typing import Any, List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 
@@ -12,6 +12,7 @@ from core.models import User, Policy, SupportingDocument, Reimbursement, PolicyS
 router = APIRouter()
 
 TEST_HTML_PATH = Path(__file__).parent.parent / "test" / "database_looking.html"
+DEMO_HTML_PATH = Path(__file__).parent.parent / "test" / "demo.html"
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -19,7 +20,15 @@ def serve_ui():
     """Serve the DB viewer HTML page."""
     if TEST_HTML_PATH.exists():
         return TEST_HTML_PATH.read_text(encoding="utf-8")
-    return "<h1>Test UI not found. Create backend/test/index.html</h1>"
+    raise HTTPException(status_code=404, detail="Test UI not found. Create backend/test/database_looking.html")
+
+
+@router.get("/demo", response_class=HTMLResponse)
+def serve_demo():
+    """Serve the interactive agent workflow demo page."""
+    if DEMO_HTML_PATH.exists():
+        return DEMO_HTML_PATH.read_text(encoding="utf-8")
+    raise HTTPException(status_code=404, detail="Demo not found. Create backend/test/demo.html")
 
 
 @router.get("/db/employees")

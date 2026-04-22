@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
     CHAT_MODEL: str = "arcee-ai/trinity-large-preview:free"
-    VISION_MODEL: str = "meta-llama/llama-3.2-11b-vision-instruct:free"
+    VISION_MODEL: str = "meta-llama/llama-3.2-11b-vision-instruct"
     EMBEDDING_MODEL: str = "openai/text-embedding-3-small"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

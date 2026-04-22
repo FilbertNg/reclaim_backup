@@ -7,11 +7,6 @@ engine = create_engine(
     echo=True,
 )
 
-def get_session():
-    """Dependency for getting a database session."""
-    with Session(engine) as session:
-        yield session
-
 def init_db():
     """Creates tables if they don't exist. Run this on startup."""
     from core import models

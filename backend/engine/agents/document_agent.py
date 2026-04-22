@@ -7,7 +7,6 @@ from typing import List, Dict, Optional
 from uuid import UUID
 
 from langchain_core.messages import HumanMessage
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from sqlmodel import Session
 import pymupdf4llm
@@ -15,6 +14,42 @@ import pymupdf4llm
 from core.models import SupportingDocument, SupportingDocumentEmbedding
 from engine.llm import get_vision_llm, get_embeddings
 from engine.prompts.document_prompts import RECEIPT_OCR_PROMPT
+
+
+def _extract_json_object(text: str) -> dict:
+    """Extract the first complete JSON object from text that may contain surrounding prose."""
+    # Strip markdown code fences if present
+    stripped = re.sub(r"```(?:json)?\s*", "", text).strip()
+    # Normalize double-braces that some models emit when mimicking template syntax
+    stripped = stripped.replace("{{", "{").replace("}}", "}")
+
+    start = stripped.find("{")
+    if start == -1:
+        raise ValueError("No JSON object found in response")
+
+    depth = 0
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(stripped[start:], start=start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"':
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return json.loads(stripped[start : i + 1])
+
+    raise ValueError("Unbalanced braces — could not extract JSON object")
 
 
 def _ocr_receipt(file_path: str) -> dict:
@@ -37,20 +72,11 @@ def _ocr_receipt(file_path: str) -> dict:
     response = get_vision_llm().invoke([message])
     content = response.content
 
-    # Try JsonOutputParser first, fall back to regex extraction
     try:
-        parser = JsonOutputParser()
-        result = parser.parse(content)
-    except Exception:
-        try:
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            if match:
-                result = json.loads(match.group())
-            else:
-                raise ValueError("No JSON found in vision LLM response")
-        except Exception as e:
-            print(f"Failed to parse receipt OCR response: {e}")
-            result = {}
+        result = _extract_json_object(content)
+    except Exception as e:
+        print(f"Failed to parse receipt OCR response: {e}")
+        result = {}
 
     return result
 
@@ -167,9 +193,11 @@ def run_document_workflow(
     session.add(doc)
     session.flush()  # Get doc.document_id before embedding insert
 
-    # For supporting docs: embed and save chunks
+    # For supporting docs: embed and save chunks (images cannot be embedded via text search)
     if not is_main and file_type == "pdf":
         _process_supporting_doc(file_path, session, doc.document_id)
+    elif not is_main and file_type != "pdf":
+        print(f"Warning: supporting doc {document_name!r} is type={file_type!r}; no embeddings generated — RAG search will not find this document.")
 
     session.commit()
 

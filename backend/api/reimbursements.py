@@ -17,8 +17,6 @@ class AnalyzeReimbursementRequest(BaseModel):
     policy_id: str
     main_category: str
     sub_category: str
-    currency: str
-    amount: float
 
 
 @router.get("/health")
@@ -79,16 +77,17 @@ def analyze_reimbursement(
                 detail=f"Document {doc_id_str} not found or does not belong to you",
             )
 
-    result = run_compliance_workflow(
-        document_ids=request.document_ids,
-        policy_id=request.policy_id,
-        main_category=request.main_category,
-        sub_category=request.sub_category,
-        currency=request.currency,
-        amount=request.amount,
-        user_id=str(current_user.user_id),
-        session=db,
-    )
+    try:
+        result = run_compliance_workflow(
+            document_ids=request.document_ids,
+            policy_id=request.policy_id,
+            main_category=request.main_category,
+            sub_category=request.sub_category,
+            user_id=str(current_user.user_id),
+            session=db,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Compliance workflow failed: {e}")
 
     # Fetch and return the full reimbursement row
     if result.get("reimbursement_id"):

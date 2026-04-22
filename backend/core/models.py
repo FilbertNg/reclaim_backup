@@ -71,7 +71,7 @@ class Reimbursement(SQLModel, table=True):
     main_category: str = Field(sa_column=Column(String))
     sub_category: str = Field(sa_column=Column(String))
     employee_department: Optional[str] = Field(default=None, sa_column=Column(String))
-    employee_rank: int = Field(sa_column=Column(Integer))
+    employee_rank: int = Field(default=1, sa_column=Column(Integer))
     currency: str = Field(sa_column=Column(String))
     amount: Decimal = Field(sa_column=Column(Numeric(10, 2)))
     judgment: str = Field(sa_column=Column(String))

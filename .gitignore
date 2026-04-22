@@ -60,3 +60,7 @@ CLAUDE.md
 
 # agent
 .claude/
+
+# documents
+backend/storage/documents/*
+backend/storage/policies/*

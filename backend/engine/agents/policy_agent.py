@@ -34,8 +34,8 @@ class PolicyWorkflowState(TypedDict):
     extracted_categories: List[str]
     overview_summary: str
     mandatory_procedures: Dict      # {CategoryName: {required_documents: [], condition: []}}
-    db_session: Any                 # SQLModel Session passed in from API layer
     error: Optional[str]
+    policy_id: Optional[str]
 
 
 # ---------------------------------------------------------------------------
@@ -66,9 +66,11 @@ def split_markdown(state: PolicyWorkflowState) -> dict:
         if len(text) > 1500:
             num_chunks = math.ceil(len(text) / 1000)
             target_chunk_size = len(text) // num_chunks
+            chunk_size = target_chunk_size + 100
+            chunk_overlap = min(150, chunk_size - 1)
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=target_chunk_size + 100,
-                chunk_overlap=150,
+                chunk_size=chunk_size,
+                chunk_overlap=chunk_overlap,
                 separators=["\n\n", "\n", "(?<=\\. )", " ", ""],
             )
             chunks = splitter.create_documents([text])
@@ -93,6 +95,14 @@ def split_markdown(state: PolicyWorkflowState) -> dict:
 # ---------------------------------------------------------------------------
 
 def extract_categories_and_summary(state: PolicyWorkflowState) -> dict:
+    if not state["markdown_docs"]:
+        return {
+            "error": "No PDFs could be parsed.",
+            "title": "",
+            "extracted_categories": [],
+            "overview_summary": "",
+        }
+
     combined_text = "\n\n--- CONTINUATION / APPENDIX ---\n\n".join(
         [doc["text"] for doc in state["markdown_docs"]]
     )[:80000]
@@ -141,9 +151,7 @@ def extract_conditions(state: PolicyWorkflowState) -> dict:
 # Node 5: save_to_db
 # ---------------------------------------------------------------------------
 
-def save_to_db(state: PolicyWorkflowState) -> dict:
-    session: Session = state["db_session"]
-
+def save_to_db(state: PolicyWorkflowState, session: Session) -> dict:
     # Generate embeddings for all chunks
     chunk_texts = [c["text"] for c in state["split_chunks"]]
     embeddings_list = get_embeddings().embed_documents(chunk_texts) if chunk_texts else []
@@ -188,13 +196,16 @@ def save_to_db(state: PolicyWorkflowState) -> dict:
 
 def run_policy_workflow(file_paths: List[str], alias: str, session) -> str:
     """Run the policy upload pipeline. Returns the policy_id string."""
+    # Wrap session-dependent node in closure to keep Session out of LangGraph state
+    def _save_to_db(state): return save_to_db(state, session)
+
     graph = StateGraph(PolicyWorkflowState)
 
     graph.add_node("process_pdfs", process_pdfs)
     graph.add_node("split_markdown", split_markdown)
     graph.add_node("extract_categories_and_summary", extract_categories_and_summary)
     graph.add_node("extract_conditions", extract_conditions)
-    graph.add_node("save_to_db", save_to_db)
+    graph.add_node("save_to_db", _save_to_db)
 
     graph.add_edge(START, "process_pdfs")
     graph.add_edge("process_pdfs", "split_markdown")
@@ -207,7 +218,6 @@ def run_policy_workflow(file_paths: List[str], alias: str, session) -> str:
     result = app.invoke({
         "file_paths": file_paths,
         "alias": alias,
-        "db_session": session,
         "markdown_docs": [],
         "split_chunks": [],
         "title": "",
@@ -215,5 +225,6 @@ def run_policy_workflow(file_paths: List[str], alias: str, session) -> str:
         "overview_summary": "",
         "mandatory_procedures": {},
         "error": None,
+        "policy_id": None,
     })
     return result.get("policy_id", "")

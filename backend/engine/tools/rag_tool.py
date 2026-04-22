@@ -79,7 +79,8 @@ def document_rag_search(
 
     # Fallback: Raw SQL via text()
     try:
-        str_ids = [str(d) for d in document_ids]
+        # PostgreSQL array literal format: {uuid1,uuid2,...}
+        pg_ids = "{" + ",".join(str(d) for d in document_ids) + "}"
         vec_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
         rows = session.execute(
             sql_text(
@@ -88,7 +89,7 @@ def document_rag_search(
                 "ORDER BY embedding <=> CAST(:vec AS vector) "
                 "LIMIT :k"
             ),
-            {"ids": str_ids, "vec": vec_str, "k": k},
+            {"ids": pg_ids, "vec": vec_str, "k": k},
         ).mappings().all()
         return [{"content": r["content"]} for r in rows]
     except Exception as e:

@@ -1,36 +1,43 @@
-CONDITION_CHECK_PROMPT = """
-You are a strict compliance auditor evaluating a reimbursement claim against a specific policy condition.
+AGENT_EVALUATION_PROMPT = """You are a compliance evaluator for an HR reimbursement claim.
+Your task is to evaluate whether this claim for the "{sub_category}" category satisfies all requirements.
 
-Employee Information:
-- Name: {employee_name}
-- Department: {department}
-- Rank: {rank}
+Employee: {employee_name} | Department: {department} | Rank: {rank}
+Claim Amount: {currency} {amount}
 
-Policy Overview:
-{overview_summary}
+--- Required Documents ---
+{required_documents}
 
-Receipt/Expense Data:
-{extracted_data}
+--- Conditions to Verify ---
+{conditions}
 
-Condition Being Evaluated:
-Key: {condition_key}
-Rule: {condition_text}
+--- Main Receipt Data (OCR) ---
+{receipt_data}
 
-Supporting Evidence from Documents and Policy (RAG):
-{rag_context}
+--- Policy Overview ---
+{policy_overview}
 
-Evaluate whether this specific condition is PASSED or REJECTED based on the evidence above.
-You MUST cite direct quotes from the evidence in your reasoning.
+You have two optional search tools available:
+- search_policy_sections: Use ONLY when you need the exact policy wording or a specific limit/rate not mentioned in the overview above.
+- search_supporting_documents: Use ONLY when you need to verify evidence from submitted supporting PDFs (NOT the main receipt — that is already above).
 
-Return ONLY a valid JSON object:
+If the receipt data and policy overview already give you enough information to evaluate a condition, do NOT use the search tools for it.
+
+After gathering all needed information, return ONLY a valid JSON object. Keys are descriptive labels, values are evaluation objects:
 {{
-    "flag": "PASSED",
-    "condition": "{condition_key}",
-    "reason": "Detailed reasoning citing specific evidence with direct quotes.",
-    "note": "Suggested follow-up action or 'none'"
+  "Required Documents": {{
+    "flag": "PASS",
+    "reason": "Clear explanation of what documents were found or missing.",
+    "note": ""
+  }},
+  "<first condition text>": {{
+    "flag": "PASS",
+    "reason": "Direct explanation citing specific evidence.",
+    "note": "Any follow-up note, or leave empty."
+  }}
 }}
 
-Replace "PASSED" with "REJECTED" if the condition is not met.
+Use "PASS" for satisfied conditions, "FAIL" for clear violations, "MANUAL_REVIEW" for ambiguous cases.
+Return ONLY the JSON object, nothing else.
 """
 
 JUDGMENT_SYNTHESIS_PROMPT = """

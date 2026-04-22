@@ -54,7 +54,7 @@ async def upload_policy(
 
     saved_paths = []
     for file in files:
-        if not file.filename.lower().endswith(".pdf"):
+        if not file.filename or not file.filename.lower().endswith(".pdf"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Only PDF files are accepted. Got: {file.filename}",
@@ -65,7 +65,10 @@ async def upload_policy(
             await out.write(content)
         saved_paths.append(str(dest))
 
-    policy_id = run_policy_workflow(saved_paths, alias, db)
+    try:
+        policy_id = run_policy_workflow(saved_paths, alias, db)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Policy workflow failed: {e}")
 
     policy = db.get(Policy, UUID(policy_id))
     if not policy:

@@ -62,7 +62,8 @@ async def upload_document(
     user_dir = STORAGE_DOCUMENTS_DIR / user_id_str
     user_dir.mkdir(parents=True, exist_ok=True)
 
-    dest = user_dir / file.filename
+    fname = file.filename or "unnamed_upload"
+    dest = user_dir / fname
     async with aiofiles.open(dest, "wb") as out:
         content = await file.read()
         await out.write(content)
