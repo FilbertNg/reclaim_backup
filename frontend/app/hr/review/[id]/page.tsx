@@ -1,506 +1,405 @@
 "use client";
-
 import { useParams, useRouter } from "next/navigation";
 import { useState } from "react";
-import {
-  ArrowLeft,
-  AlertTriangle,
-  Clock,
-  CheckCircle2,
-  HelpCircle,
-  FileText,
-  Receipt,
-  MapPin,
-  Calendar,
-  DollarSign,
-  Tag,
-  User,
-  MessageSquare,
-  ShieldCheck,
-  ShieldX,
-  ChevronDown,
-  ExternalLink,
-  Pencil,
-  ImageIcon,
-  ZoomIn,
-} from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, ShieldCheck, ShieldX, ChevronDown, ZoomIn, Pencil, FileText, Download } from "lucide-react";
+import { ClaimBundle, LineItem, MOCK_BUNDLES } from "../../hr_components/mockData";
 
-// ─── Types (mirrors backend schema — ready for API integration) ───────────────
+type Decision = "approve_full" | "approve_adjusted" | "reject" | null;
 
-import { AiStatus, PolicyFlag, AuditLogEntry, ClaimDetail, MOCK_CLAIMS } from "../../hr_components/mockData";
-
-type ReviewDecision = "force_approve" | "adjust" | "reject" | null;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const STATUS_STYLE: Record<AiStatus, string> = {
-  "Policy Flagged": "bg-error/10 text-error-dim",
-  "Awaiting Review": "bg-amber-100 text-amber-800",
-  "Auto-Approved": "bg-emerald-50 text-emerald-700",
-  "Low Confidence": "bg-tertiary/10 text-tertiary-dim",
+const STATUS_CHIP: Record<string, string> = {
+  APPROVED: "bg-emerald-50 text-emerald-700",
+  REJECTED: "bg-red-50 text-red-700",
+  PARTIAL_APPROVE: "bg-amber-50 text-amber-800",
+  PENDING: "bg-surface-container text-on-surface-variant",
 };
+const CAT: Record<string, string> = { meals: "Meals", transportation: "Transport", accommodation: "Stay", others: "Others" };
+const fmt = (n: number) => `MYR ${n.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`;
 
-const STATUS_ICON: Record<AiStatus, React.ReactNode> = {
-  "Policy Flagged": <AlertTriangle className="w-3.5 h-3.5" strokeWidth={2.5} />,
-  "Awaiting Review": <Clock className="w-3.5 h-3.5" strokeWidth={2.5} />,
-  "Auto-Approved": <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={2.5} />,
-  "Low Confidence": <HelpCircle className="w-3.5 h-3.5" strokeWidth={2.5} />,
-};
-
-const SEVERITY_STYLE: Record<string, string> = {
-  high: "bg-error/10 text-error-dim border-error/20",
-  medium: "bg-amber-50 text-amber-800 border-amber-200/50",
-  low: "bg-surface-container text-on-surface-variant border-outline-variant/20",
-};
-
-// ─── Page Component ───────────────────────────────────────────────────────────
-
-export default function ClaimReviewPage() {
-  const params = useParams();
-  const router = useRouter();
-  const claimId = params.id as string;
-
-  // TODO: Replace with `useSWR` / `useQuery` fetching from backend
-  const claim: ClaimDetail | undefined = MOCK_CLAIMS[claimId];
-
-  const [decision, setDecision] = useState<ReviewDecision>(null);
-  const [note, setNote] = useState("");
-  const [adjustedAmount, setAdjustedAmount] = useState(claim?.aiSuggestedAmount ?? "");
-  const [showAuditLog, setShowAuditLog] = useState(false);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
-
-  // ── 404 state ──────────────────────────────────────────────────────────
-  if (!claim) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-        <FileText className="w-12 h-12 text-outline-variant" strokeWidth={1.5} />
-        <h2 className="font-headline font-bold text-xl text-on-surface">Claim not found</h2>
-        <p className="text-sm text-on-surface-variant">
-          No claim with ID <span className="font-mono font-semibold">{claimId}</span> exists.
-        </p>
-        <button
-          onClick={() => router.push("/hr/dashboard")}
-          className="mt-2 px-5 py-2 rounded-xl bg-primary text-on-primary text-sm font-semibold
-                     font-headline hover:bg-primary-dim active:scale-95 transition-all"
-        >
-          Back to Dashboard
-        </button>
-      </div>
-    );
-  }
-
-  const confidenceColor =
-    claim.aiConfidence >= 85 ? "text-emerald-600" : claim.aiConfidence >= 60 ? "text-amber-600" : "text-error-dim";
-
-  // TODO: Wire to backend POST /api/hr/claims/{id}/review
-  function handleSubmit() {
-    if (!decision) return;
-    const payload = {
-      claimId,
-      decision,
-      note,
-      ...(decision === "adjust" ? { adjustedAmount } : {}),
-    };
-    console.log("Submitting review:", payload);
-    router.push("/hr/dashboard");
-  }
-
+function Card({ title, children, right }: { title: React.ReactNode; children: React.ReactNode; right?: React.ReactNode }) {
   return (
-    <div className="relative min-h-full p-6 md:p-10 lg:p-12 pb-32 lg:pb-12">
-
-      {/* ── Ambient gradient ─────────────────────────────────────────────── */}
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -top-20 -right-20 w-[420px] h-[420px] rounded-full bg-primary opacity-[0.05] blur-[80px]" />
-        <div className="absolute top-40 right-32 w-[260px] h-[260px] rounded-full bg-tertiary opacity-[0.04] blur-[64px]" />
+    <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl shadow-[0_4px_24px_-8px_rgba(44,47,49,0.08)] overflow-hidden">
+      <div className="px-6 py-4 border-b border-outline-variant/15 flex items-center justify-between">
+        <h3 className="font-headline font-bold text-base text-on-surface">{title}</h3>
+        {right}
       </div>
-
-      {/* ── Back button + title ──────────────────────────────────────────── */}
-      <div className="relative z-10 mb-8">
-        <button
-          id="back-to-dashboard"
-          onClick={() => router.push("/hr/dashboard")}
-          className="inline-flex items-center gap-2 text-sm font-semibold text-on-surface-variant
-                     hover:text-primary transition-colors mb-4 active:scale-95 cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" strokeWidth={2.5} />
-          Back to Dashboard
-        </button>
-        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-          <h2 className="font-headline font-extrabold text-on-background tracking-tight"
-              style={{ fontSize: "2rem", letterSpacing: "-0.02em" }}>
-            Review Claim
-          </h2>
-          <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold w-fit ${STATUS_STYLE[claim.status]}`}>
-            {STATUS_ICON[claim.status]}
-            {claim.status}
-          </span>
-        </div>
-        <p className="text-on-surface-variant text-sm mt-1 font-body">
-          Claim <span className="font-mono font-semibold">{claim.id}</span> · Submitted {claim.submittedAt}
-        </p>
-      </div>
-
-      {/* ── Main content: 2-column on lg ─────────────────────────────────── */}
-      <div className="relative z-10 grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6">
-
-        {/* ═══ LEFT COLUMN ═══ */}
-        <div className="flex flex-col gap-6">
-
-          {/* ── Claim Details Card ──────────────────────────────────────── */}
-          <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                          shadow-[0_8px_40px_-12px_rgba(44,47,49,0.06)] overflow-hidden">
-            <div className="px-6 py-5 border-b border-outline-variant/15">
-              <h3 className="font-headline font-bold text-base text-on-surface">Claim Details</h3>
-            </div>
-            <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-y-5 gap-x-8">
-              <DetailRow icon={<User className="w-4 h-4" />} label="Employee" value={claim.employee.name} sub={`${claim.employee.department} · ${claim.employee.email}`} />
-              <DetailRow icon={<DollarSign className="w-4 h-4" />} label="Amount" value={claim.amount} sub={claim.currency} />
-              <DetailRow icon={<Tag className="w-4 h-4" />} label="Category" value={claim.category} />
-              <DetailRow icon={<Receipt className="w-4 h-4" />} label="Vendor" value={claim.vendor} />
-              <DetailRow icon={<MapPin className="w-4 h-4" />} label="Location" value={claim.location} />
-              <DetailRow icon={<Calendar className="w-4 h-4" />} label="Submitted" value={claim.submittedAt} />
-            </div>
-            {claim.description && (
-              <div className="px-6 pb-6">
-                <p className="text-[11px] font-semibold font-headline text-on-surface-variant uppercase tracking-widest mb-1.5">
-                  Description
-                </p>
-                <p className="text-sm text-on-surface leading-relaxed">{claim.description}</p>
-              </div>
-            )}
-          </div>
-
-          {/* ── Uploaded Evidence ───────────────────────────────────────── */}
-          <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                          shadow-[0_8px_40px_-12px_rgba(44,47,49,0.06)] overflow-hidden">
-            <div className="px-6 py-5 border-b border-outline-variant/15 flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-on-surface-variant" strokeWidth={2} />
-              <h3 className="font-headline font-bold text-base text-on-surface">
-                Uploaded Evidence
-                <span className="ml-2 text-xs font-label text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full">
-                  {claim.receiptUrls.length}
-                </span>
-              </h3>
-            </div>
-            {claim.receiptUrls.length > 0 ? (
-              <div className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {claim.receiptUrls.map((url, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setLightboxUrl(url)}
-                    className="group/img relative aspect-[3/4] rounded-xl overflow-hidden
-                               bg-surface-container ring-1 ring-outline-variant/20
-                               hover:ring-primary/40 transition-all cursor-pointer"
-                  >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={url}
-                      alt={`Receipt ${i + 1}`}
-                      className="w-full h-full object-cover transition-transform duration-300
-                                 group-hover/img:scale-105"
-                    />
-                    <div className="absolute inset-0 bg-inverse-surface/0 group-hover/img:bg-inverse-surface/20
-                                    flex items-center justify-center transition-all">
-                      <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover/img:opacity-100
-                                        transition-opacity drop-shadow-lg" strokeWidth={2} />
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="p-6 flex flex-col items-center gap-2 text-center">
-                <ImageIcon className="w-8 h-8 text-outline-variant" strokeWidth={1.5} />
-                <p className="text-sm text-on-surface-variant font-medium">No receipt images uploaded</p>
-                <p className="text-xs text-on-surface-variant/70">The employee did not attach any evidence to this claim.</p>
-              </div>
-            )}
-          </div>
-
-          {/* ── Policy Flags ────────────────────────────────────────────── */}
-          {claim.policyFlags.length > 0 && (
-            <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                            shadow-[0_8px_40px_-12px_rgba(44,47,49,0.06)] overflow-hidden">
-              <div className="px-6 py-5 border-b border-outline-variant/15 flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-error-dim" strokeWidth={2.5} />
-                <h3 className="font-headline font-bold text-base text-on-surface">
-                  Policy Flags
-                  <span className="ml-2 text-xs font-label text-error-dim bg-error/10 px-2 py-0.5 rounded-full">
-                    {claim.policyFlags.length}
-                  </span>
-                </h3>
-              </div>
-              <div className="p-6 flex flex-col gap-3">
-                {claim.policyFlags.map((flag) => (
-                  <div key={flag.id} className={`rounded-xl p-4 border ${SEVERITY_STYLE[flag.severity]}`}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-mono font-bold uppercase tracking-wider opacity-70">
-                        {flag.rule}
-                      </span>
-                      <span className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-current/10">
-                        {flag.severity}
-                      </span>
-                    </div>
-                    <p className="text-sm leading-relaxed">{flag.description}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Audit Log (collapsible) ─────────────────────────────────── */}
-          <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                          shadow-[0_8px_40px_-12px_rgba(44,47,49,0.06)] overflow-hidden">
-            <button
-              id="toggle-audit-log"
-              onClick={() => setShowAuditLog((o) => !o)}
-              className="w-full px-6 py-5 flex items-center justify-between cursor-pointer
-                         hover:bg-surface-container-low/30 transition-colors"
-            >
-              <h3 className="font-headline font-bold text-base text-on-surface flex items-center gap-2">
-                <Clock className="w-4 h-4 text-on-surface-variant" strokeWidth={2} />
-                Audit Trail
-                <span className="text-xs font-label text-on-surface-variant bg-surface-container px-2 py-0.5 rounded-full">
-                  {claim.auditLog.length}
-                </span>
-              </h3>
-              <ChevronDown className={`w-4 h-4 text-on-surface-variant transition-transform duration-200 ${showAuditLog ? "rotate-180" : ""}`} />
-            </button>
-            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${showAuditLog ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0"}`}>
-              <div className="px-6 pb-6">
-                <div className="relative pl-6 border-l-2 border-outline-variant/20 flex flex-col gap-4">
-                  {claim.auditLog.map((entry) => (
-                    <div key={entry.id} className="relative">
-                      <div className="absolute -left-[31px] top-1 w-3 h-3 rounded-full bg-surface-container-lowest border-2 border-primary/40" />
-                      <p className="text-xs text-on-surface-variant mb-0.5">{entry.timestamp}</p>
-                      <p className="text-sm text-on-surface">
-                        <span className="font-semibold">{entry.actor}</span> — {entry.action}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ═══ RIGHT COLUMN — AI Summary + Decision ═══ */}
-        <div className="flex flex-col gap-6">
-
-          {/* ── AI Analysis Card ───────────────────────────────────────── */}
-          <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                          shadow-[0_8px_40px_-12px_rgba(44,47,49,0.06)] overflow-hidden">
-            <div className="px-6 py-5 border-b border-outline-variant/15">
-              <h3 className="font-headline font-bold text-base text-on-surface">AI Analysis</h3>
-            </div>
-            <div className="p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <span className="text-[11px] font-semibold font-headline text-on-surface-variant uppercase tracking-widest">
-                  Confidence
-                </span>
-                <span className={`text-lg font-extrabold font-headline tabular-nums ${confidenceColor}`}>
-                  {claim.aiConfidence}%
-                </span>
-              </div>
-              {/* Confidence bar */}
-              <div className="w-full h-2 rounded-full bg-surface-container mb-5 overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    claim.aiConfidence >= 85 ? "bg-emerald-500" : claim.aiConfidence >= 60 ? "bg-amber-500" : "bg-error"
-                  }`}
-                  style={{ width: `${claim.aiConfidence}%` }}
-                />
-              </div>
-              <p className="text-[11px] font-semibold font-headline text-on-surface-variant uppercase tracking-widest mb-2">
-                Summary
-              </p>
-              <p className="text-sm text-on-surface leading-relaxed">{claim.aiSummary}</p>
-            </div>
-          </div>
-
-          {/* ── Decision Card ──────────────────────────────────────────── */}
-          <div className="bg-surface-container-lowest/80 backdrop-blur-xl rounded-xl
-                          shadow-[0_12px_60px_-15px_rgba(44,47,49,0.08)] overflow-hidden
-                          lg:sticky lg:top-6">
-            <div className="px-6 py-5 border-b border-outline-variant/15">
-              <h3 className="font-headline font-bold text-base text-on-surface">Your Decision</h3>
-            </div>
-            <div className="p-6 flex flex-col gap-4">
-
-              {/* ── 3 decision options ─────────────────────────────────── */}
-              <div className="flex flex-col gap-2.5">
-
-                {/* Force Full Approval */}
-                <button
-                  id="decision-force-approve"
-                  onClick={() => setDecision("force_approve")}
-                  className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl text-sm font-semibold
-                              font-headline transition-all duration-200 active:scale-[0.98] cursor-pointer border text-left ${
-                                decision === "force_approve"
-                                  ? "bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm ring-1 ring-emerald-200"
-                                  : "bg-surface-container-lowest text-on-surface-variant border-outline-variant/20 hover:border-emerald-300 hover:text-emerald-700"
-                              }`}
-                >
-                  <ShieldCheck className="w-5 h-5 shrink-0" strokeWidth={2} />
-                  <div>
-                    <p>Force Full Approval</p>
-                    <p className="text-[11px] font-normal mt-0.5 opacity-70">
-                      Approve the full claimed amount of {claim.amount}
-                    </p>
-                  </div>
-                </button>
-
-                {/* Approve Adjusted Amount — only if AI suggests one */}
-                {claim.aiSuggestedAmount && (
-                  <button
-                    id="decision-adjust"
-                    onClick={() => setDecision("adjust")}
-                    className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl text-sm font-semibold
-                                font-headline transition-all duration-200 active:scale-[0.98] cursor-pointer border text-left ${
-                                  decision === "adjust"
-                                    ? "bg-amber-50 text-amber-800 border-amber-300 shadow-sm ring-1 ring-amber-200"
-                                    : "bg-surface-container-lowest text-on-surface-variant border-outline-variant/20 hover:border-amber-300 hover:text-amber-800"
-                                }`}
-                  >
-                    <Pencil className="w-5 h-5 shrink-0" strokeWidth={2} />
-                    <div>
-                      <p>Approve Adjusted Amount</p>
-                      <p className="text-[11px] font-normal mt-0.5 opacity-70">
-                        AI suggests {claim.aiSuggestedAmount} (policy-compliant cap)
-                      </p>
-                    </div>
-                  </button>
-                )}
-
-                {/* Confirm Rejection */}
-                <button
-                  id="decision-reject"
-                  onClick={() => setDecision("reject")}
-                  className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl text-sm font-semibold
-                              font-headline transition-all duration-200 active:scale-[0.98] cursor-pointer border text-left ${
-                                decision === "reject"
-                                  ? "bg-error/10 text-error-dim border-error/30 shadow-sm ring-1 ring-error/20"
-                                  : "bg-surface-container-lowest text-on-surface-variant border-outline-variant/20 hover:border-error/30 hover:text-error-dim"
-                              }`}
-                >
-                  <ShieldX className="w-5 h-5 shrink-0" strokeWidth={2} />
-                  <div>
-                    <p>Confirm Rejection</p>
-                    <p className="text-[11px] font-normal mt-0.5 opacity-70">
-                      Deny claim and notify the employee
-                    </p>
-                  </div>
-                </button>
-              </div>
-
-              {/* ── Editable adjusted amount (visible when "adjust" is selected) */}
-              {decision === "adjust" && (
-                <div className="rounded-xl bg-amber-50/60 border border-amber-200/50 p-4">
-                  <label htmlFor="adjusted-amount"
-                    className="text-[11px] font-semibold font-headline text-amber-800 uppercase tracking-widest mb-2 block">
-                    Approved Amount
-                  </label>
-                  <div className="flex items-center bg-surface-container-lowest rounded-lg ring-1 ring-amber-300
-                                  focus-within:ring-primary/40 px-3 py-2.5 transition-all">
-                    <span className="text-sm text-on-surface-variant mr-1 font-semibold">$</span>
-                    <input
-                      id="adjusted-amount"
-                      type="text"
-                      value={adjustedAmount.replace(/^\$/, "")}
-                      onChange={(e) => setAdjustedAmount(e.target.value)}
-                      className="w-full bg-transparent text-sm font-semibold text-on-surface outline-none font-body tabular-nums"
-                    />
-                  </div>
-                  <p className="text-[11px] text-amber-700 mt-2">
-                    Original: {claim.amount} · AI recommended: {claim.aiSuggestedAmount}
-                  </p>
-                </div>
-              )}
-
-              {/* Note */}
-              <div>
-                <label htmlFor="review-note" className="text-[11px] font-semibold font-headline text-on-surface-variant uppercase tracking-widest mb-2 block">
-                  Note <span className="normal-case tracking-normal font-normal">(optional)</span>
-                </label>
-                <textarea
-                  id="review-note"
-                  rows={3}
-                  placeholder="Add a note for the employee…"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  className="w-full bg-surface-container-low rounded-xl px-4 py-3 text-sm text-on-surface
-                             placeholder:text-on-surface-variant/50 font-body outline-none
-                             ring-1 ring-outline-variant/20 focus:ring-primary/40
-                             resize-none transition-all"
-                />
-              </div>
-
-              {/* Submit */}
-              <button
-                id="submit-review"
-                onClick={handleSubmit}
-                disabled={!decision}
-                className={`w-full py-3 rounded-xl text-sm font-semibold font-headline transition-all
-                            duration-200 active:scale-[0.97] ${
-                              decision
-                                ? "bg-primary text-on-primary shadow-[0_4px_16px_rgba(70,71,211,0.25)] hover:bg-primary-dim cursor-pointer"
-                                : "bg-surface-container text-on-surface-variant/50 cursor-not-allowed"
-                            }`}
-              >
-                {decision === "force_approve"
-                  ? "Submit Full Approval"
-                  : decision === "adjust"
-                    ? `Submit Adjusted Approval`
-                    : decision === "reject"
-                      ? "Submit Rejection"
-                      : "Select a decision"}
-              </button>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* ── Image Lightbox ─────────────────────────────────────────────── */}
-      {lightboxUrl && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/60 backdrop-blur-sm p-6"
-          onClick={() => setLightboxUrl(null)}
-        >
-          <div className="relative max-w-3xl max-h-[85vh] rounded-2xl overflow-hidden shadow-2xl">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={lightboxUrl}
-              alt="Receipt full view"
-              className="w-full h-full object-contain"
-            />
-            <button
-              onClick={() => setLightboxUrl(null)}
-              className="absolute top-3 right-3 w-8 h-8 rounded-full bg-inverse-surface/70 text-white
-                         flex items-center justify-center hover:bg-inverse-surface transition-colors"
-              aria-label="Close lightbox"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
+      {children}
     </div>
   );
 }
 
-// ─── Detail row sub-component ─────────────────────────────────────────────────
-
-function DetailRow({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) {
+function Field({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex gap-3">
-      <div className="mt-0.5 text-on-surface-variant shrink-0">{icon}</div>
-      <div className="min-w-0">
-        <p className="text-[11px] font-semibold font-headline text-on-surface-variant uppercase tracking-widest mb-0.5">
-          {label}
+    <div>
+      <p className="text-[10px] font-semibold font-headline text-on-surface-variant uppercase tracking-wider mb-0.5">{label}</p>
+      <p className="text-sm font-medium text-on-surface">{value}</p>
+    </div>
+  );
+}
+
+export default function ReviewPage() {
+  const { id } = useParams() as { id: string };
+  const router = useRouter();
+  const bundle: ClaimBundle | undefined = MOCK_BUNDLES[id];
+
+  const [approvals, setApprovals] = useState<Record<string, number>>(
+    () => Object.fromEntries((MOCK_BUNDLES[id]?.line_items ?? []).map(li => [li.document_id, li.approved_amount]))
+  );
+  const [decision, setDecision] = useState<Decision>(null);
+  const [note, setNote] = useState("");
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+
+  if (!bundle) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <p className="text-on-surface-variant">No bundle found for <code className="font-mono">{id}</code></p>
+      <button onClick={() => router.push("/hr/dashboard")} className="px-5 py-2 rounded-xl bg-primary text-on-primary text-sm font-semibold">Back to Dashboard</button>
+    </div>
+  );
+
+  const pct = Math.round(bundle.confidence * 100);
+  const netHR = Object.values(approvals).reduce((a, b) => a + b, 0);
+  const allFlags = bundle.line_items.flatMap(li => li.audit_notes.map(n => ({ ...n, receipt: li.description })));
+
+  function preset(mode: "full" | "ai" | "zero") {
+    setApprovals(Object.fromEntries(bundle!.line_items.map(li => [
+      li.document_id,
+      mode === "full" ? li.requested_amount : mode === "ai" ? li.approved_amount : 0,
+    ])));
+  }
+
+  function submit() {
+    // TODO: POST /api/hr/bundles/:id/review
+    console.log("review payload", { id, decision, lineItemApprovals: approvals, note });
+    router.push("/hr/dashboard");
+  }
+
+  return (
+    <div className="relative min-h-full p-6 md:p-10 pb-32 lg:pb-10">
+      <div className="mb-8">
+        <button onClick={() => router.push("/hr/dashboard")} className="inline-flex items-center gap-2 text-sm font-semibold text-on-surface-variant hover:text-primary mb-4 transition-colors cursor-pointer">
+          <ArrowLeft className="w-4 h-4" strokeWidth={2.5} /> Back to Dashboard
+        </button>
+        <h2 className="font-headline font-extrabold text-on-background" style={{ fontSize: "2rem", letterSpacing: "-0.02em" }}>
+          Review Claim <span className="font-mono text-primary/60 text-xl">{bundle.id}</span>
+        </h2>
+        <p className="text-sm text-on-surface-variant mt-1">
+          Submitted {new Date(bundle.submitted_at).toLocaleString("en-MY")} 
         </p>
-        <p className="text-sm font-medium text-on-surface truncate">{value}</p>
-        {sub && <p className="text-[11px] text-on-surface-variant truncate">{sub}</p>}
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-6 min-w-0">
+
+        {/* ═══ LEFT ═══ */}
+        <div className="flex flex-col gap-6 min-w-0">
+
+          {/* Employee Identity */}
+          <Card title="Employee Identity">
+            <div className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {([["Entity", bundle.employee.entity], ["Employee Name", bundle.employee.name], ["Employee No.", bundle.employee.employee_no],
+                ["Position", bundle.employee.position], ["Department", bundle.employee.department], ["Location", bundle.employee.location]] as [string,string][])
+                .map(([l, v]) => <Field key={l} label={l} value={v} />)}
+            </div>
+          </Card>
+
+          {/* Claim Context */}
+          <Card title="Claim Context">
+            <div className="p-6 grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {([["Destination", bundle.travel_destination], ["Purpose", bundle.travel_purpose],
+                ["Departure", bundle.departure_date], ["Arrival", bundle.arrival_date],
+                ["Overseas Travel", bundle.is_overseas ? "Yes" : "No"]] as [string,string][])
+                .map(([l, v]) => <Field key={l} label={l} value={v} />)}
+            </div>
+          </Card>
+
+          {/* Claimant Form PDF */}
+          <Card
+            title={<span className="flex items-center gap-2"><FileText className="w-4 h-4 text-primary" strokeWidth={2} /> Claimant Submission Form</span>}
+            right={
+              <button className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1.5 rounded-lg bg-primary/8 text-primary hover:bg-primary/15 transition-colors">
+                <Download className="w-3 h-3" strokeWidth={2.5} /> Download PDF
+              </button>
+            }
+          >
+            <div className="p-5">
+              {/* Paper document wrapper */}
+              <div className="rounded-lg border border-outline-variant/20 bg-[#fafaf9] shadow-[inset_0_1px_3px_rgba(0,0,0,0.04)] overflow-hidden font-[system-ui]">
+                {/* Form header */}
+                <div className="px-6 py-4 bg-surface-container-low/60 border-b border-outline-variant/15 flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Reclaim Sdn. Bhd.</p>
+                    <p className="text-sm font-bold text-on-surface mt-0.5">Employee Expense Claim Form</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-on-surface-variant">Claim No.</p>
+                    <p className="text-xs font-mono font-bold text-primary">{bundle.id.toUpperCase()}</p>
+                  </div>
+                </div>
+                {/* Section: Claimant details */}
+                <div className="px-6 pt-4 pb-3">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-3 border-b border-dashed border-outline-variant/30 pb-1">Section A — Claimant Information</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                    {([  
+                      ["Full Name", bundle.employee.name],
+                      ["Employee No.", bundle.employee.employee_no],
+                      ["Position", bundle.employee.position],
+                      ["Department", bundle.employee.department],
+                      ["Location", bundle.employee.location],
+                      ["Email", bundle.employee.email],
+                    ] as [string, string][]).map(([l, v]) => (
+                      <div key={l}>
+                        <p className="text-[9px] text-on-surface-variant uppercase tracking-wider">{l}</p>
+                        <p className="text-xs font-medium text-on-surface border-b border-dotted border-outline-variant/40 pb-0.5 mt-0.5">{v}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Section: Claim details */}
+                <div className="px-6 pt-3 pb-3">
+                  <p className="text-[9px] font-bold uppercase tracking-widest text-on-surface-variant/60 mb-3 border-b border-dashed border-outline-variant/30 pb-1">Section B — Claim Details</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+                    {([
+                      ["Travel Destination", bundle.travel_destination],
+                      ["Purpose of Travel", bundle.travel_purpose],
+                      ["Departure Date", bundle.departure_date],
+                      ["Return Date", bundle.arrival_date],
+                      ["Overseas Travel", bundle.is_overseas ? "Yes ✓" : "No"],
+                      ["Total Amount Claimed", `MYR ${bundle.totals.total_requested.toLocaleString("en-MY", { minimumFractionDigits: 2 })}`],
+                    ] as [string, string][]).map(([l, v]) => (
+                      <div key={l}>
+                        <p className="text-[9px] text-on-surface-variant uppercase tracking-wider">{l}</p>
+                        <p className="text-xs font-medium text-on-surface border-b border-dotted border-outline-variant/40 pb-0.5 mt-0.5">{v}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Footer */}
+                <div className="px-6 py-3 border-t border-outline-variant/15 flex items-center justify-between bg-surface-container-low/30">
+                  <div>
+                    <p className="text-[9px] text-on-surface-variant uppercase tracking-wider">Employee Signature</p>
+                    <p className="text-xs font-medium text-on-surface mt-1 italic">{bundle.employee.name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[9px] text-on-surface-variant uppercase tracking-wider">Date Submitted</p>
+                    <p className="text-xs font-medium text-on-surface mt-1">{new Date(bundle.submitted_at).toLocaleDateString("en-MY")}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+
+          {/* Financial Breakdown */}
+          <Card title={<>Financial Breakdown <span className="ml-2 text-xs font-label bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">{bundle.line_items.length} receipts</span></>}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm border-collapse">
+                <thead>
+                  <tr className="bg-surface-container-low/60">
+                    {["#", "Date", "Cat.", "Description", "Requested", "AI Approved", "Status"].map(h => (
+                      <th key={h} className="py-3 px-3 text-[10px] font-semibold font-headline text-on-surface-variant uppercase tracking-wider whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-outline-variant/10">
+                  {bundle.line_items.map((li, idx) => (
+                    <tr key={li.document_id} className="hover:bg-surface-container-low/30 transition-colors align-top">
+                      <td className="py-3 px-3 text-on-surface-variant">
+                        {li.receipt_url
+                          ? <button onClick={() => setLightbox(li.receipt_url!)} className="flex items-center gap-1 text-primary hover:underline text-xs"><ZoomIn className="w-3 h-3" />{idx + 1}</button>
+                          : <span className="text-xs">{idx + 1}</span>}
+                      </td>
+                      <td className="py-3 px-3 text-on-surface-variant whitespace-nowrap text-xs">{li.date}</td>
+                      <td className="py-3 px-3"><span className="text-xs bg-surface-container px-1.5 py-0.5 rounded-full text-on-surface-variant">{CAT[li.category]}</span></td>
+                      <td className="py-3 px-3 max-w-[160px]">
+                        <p className="text-on-surface text-xs truncate">{li.description}</p>
+                        {li.human_edited && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded mt-1">
+                            ⚠ EDITED · OCR: {fmt(li.ocr_amount ?? 0)}
+                          </span>
+                        )}
+                        {li.audit_notes.map((n, i) => (
+                          <p key={i} className="text-[10px] font-mono font-bold text-error-dim mt-0.5">{n.tag}</p>
+                        ))}
+                      </td>
+                      <td className="py-3 px-3 font-semibold tabular-nums whitespace-nowrap text-xs">{fmt(li.requested_amount)}</td>
+                      <td className="py-3 px-3 font-semibold tabular-nums text-emerald-700 whitespace-nowrap text-xs">{fmt(li.approved_amount)}</td>
+                      <td className="py-3 px-3">
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_CHIP[li.status]}`}>{li.status.replace("_", " ")}</span>
+                        {li.deduction_amount > 0 && <p className="text-[10px] text-error-dim mt-0.5">-{fmt(li.deduction_amount)}</p>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+
+          {/* Policy Flags */}
+          {allFlags.length > 0 && (
+            <Card title={
+              <span className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-error-dim" strokeWidth={2.5} />
+                Policy Flags
+                <span className="text-xs bg-error/10 text-error-dim px-2 py-0.5 rounded-full font-semibold">{allFlags.length}</span>
+              </span>
+            }>
+              <div className="p-6 flex flex-col gap-3">
+                {allFlags.map((f, i) => (
+                  <div key={i} className="rounded-xl p-4 bg-error/5 border border-error/15">
+                    <p className="text-[10px] font-mono font-bold text-error-dim mb-1">{f.tag}</p>
+                    <p className="text-sm text-on-surface leading-relaxed">{f.message}</p>
+                    <p className="text-[11px] text-on-surface-variant mt-1">Receipt: {f.receipt}</p>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Audit Trail */}
+          <Card title={
+            <button onClick={() => setAuditOpen(o => !o)} className="w-full flex items-center justify-between cursor-pointer">
+              <span className="flex items-center gap-2 font-headline font-bold text-base text-on-surface">
+                <Clock className="w-4 h-4 text-on-surface-variant" strokeWidth={2} /> Audit Trail
+                <span className="text-xs bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-full">{bundle.audit_log.length}</span>
+              </span>
+              <ChevronDown className={`w-4 h-4 text-on-surface-variant transition-transform ${auditOpen ? "rotate-180" : ""}`} />
+            </button>
+          }>
+            <div className={`overflow-hidden transition-all duration-300 ${auditOpen ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0"}`}>
+              <div className="px-6 pb-6 ml-2 pl-6 border-l-2 border-outline-variant/20 flex flex-col gap-4">
+                {bundle.audit_log.map(e => (
+                  <div key={e.id} className="relative">
+                    <div className="absolute -left-[31px] top-1 w-3 h-3 rounded-full bg-surface-container-lowest border-2 border-primary/40" />
+                    <p className="text-xs text-on-surface-variant">{e.timestamp}</p>
+                    <p className="text-sm text-on-surface"><span className="font-semibold">{e.actor}</span> — {e.action}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Card>
+        </div>
+
+        {/* ═══ RIGHT ═══ */}
+        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:h-fit">
+
+          {/* AI Analysis */}
+          <Card title="AI Analysis">
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-[10px] font-semibold font-headline text-on-surface-variant uppercase tracking-wider">Confidence</span>
+                <span className={`text-2xl font-extrabold tabular-nums ${pct >= 85 ? "text-emerald-600" : pct >= 60 ? "text-amber-600" : "text-error-dim"}`}>{pct}%</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_CHIP[bundle.overall_judgment]}`}>{bundle.overall_judgment.replace("_", " ")}</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-surface-container mb-4 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-500 ${pct >= 85 ? "bg-emerald-500" : pct >= 60 ? "bg-amber-500" : "bg-error"}`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="text-sm text-on-surface leading-relaxed">{bundle.summary}</p>
+            </div>
+          </Card>
+
+          {/* Financial Totals */}
+          <Card title="Financial Summary">
+            <div className="p-6 flex flex-col gap-3">
+              {([["Total Requested", fmt(bundle.totals.total_requested), "text-on-surface"],
+                ["AI Deduction", `-${fmt(bundle.totals.total_deduction)}`, "text-error-dim"],
+                ["AI Net Approved", fmt(bundle.totals.net_approved), "text-emerald-700"]] as [string, string, string][])
+                .map(([l, v, cls]) => (
+                  <div key={l} className="flex items-center justify-between">
+                    <p className="text-sm text-on-surface-variant">{l}</p>
+                    <p className={`text-sm tabular-nums font-semibold ${cls}`}>{v}</p>
+                  </div>
+                ))}
+              <div className="border-t border-outline-variant/15 pt-3 flex items-center justify-between">
+                <p className="text-sm font-bold text-on-surface">HR Approved Total</p>
+                <p className="text-base font-extrabold tabular-nums text-primary">{fmt(netHR)}</p>
+              </div>
+            </div>
+          </Card>
+
+          {/* Per-Receipt Inputs */}
+          <Card
+            title="Per-Receipt Decision"
+            right={
+              <div className="flex gap-1">
+                {(["full", "ai"] as const).map(m => (
+                  <button key={m} onClick={() => preset(m)} className="text-[10px] font-semibold px-2 py-1 rounded-lg bg-surface-container text-on-surface-variant hover:bg-primary/10 hover:text-primary transition-colors">
+                    {m === "full" ? "Max" : "AI"}
+                  </button>
+                ))}
+              </div>
+            }
+          >
+            <div className="p-4 flex flex-col gap-3">
+              {bundle.line_items.map((li, idx) => (
+                <div key={li.document_id} className="flex items-center gap-3">
+                  <span className="text-xs text-on-surface-variant w-5 shrink-0">#{idx + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-on-surface truncate">{li.description}</p>
+                    <p className="text-[10px] text-on-surface-variant">Req: {fmt(li.requested_amount)}</p>
+                  </div>
+                  <div className="flex items-center bg-surface-container-low rounded-lg ring-1 ring-outline-variant/20 focus-within:ring-primary/40 px-2 py-1.5 w-28 shrink-0 transition-all">
+                    <span className="text-[10px] text-on-surface-variant mr-1">MYR</span>
+                    <input
+                      type="number" min={0} max={li.requested_amount}
+                      value={approvals[li.document_id] ?? 0}
+                      onChange={e => setApprovals(p => ({ ...p, [li.document_id]: parseFloat(e.target.value) || 0 }))}
+                      className="w-full bg-transparent text-xs font-semibold text-on-surface outline-none tabular-nums"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          {/* Decision */}
+          <Card title="Your Decision">
+            <div className="p-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                {([
+                  ["approve_full", ShieldCheck, "Force Full Approval", `Approve full ${fmt(bundle.totals.total_requested)}`, "emerald", "full"],
+                  ["approve_adjusted", Pencil, "Approve Adjusted Amount", `HR total: ${fmt(netHR)}`, "amber", "ai"],
+                  ["reject", ShieldX, "Confirm Rejection", "Reject entire claim bundle", "error", "zero"],
+                ] as const).map(([val, Icon, label, sub, color, p]) => {
+                  const active = decision === val;
+                  const s = {
+                    emerald: active ? "bg-emerald-50 text-emerald-700 border-emerald-300 ring-1 ring-emerald-200" : "border-outline-variant/20 text-on-surface-variant hover:border-emerald-300 hover:text-emerald-700",
+                    amber: active ? "bg-amber-50 text-amber-800 border-amber-300 ring-1 ring-amber-200" : "border-outline-variant/20 text-on-surface-variant hover:border-amber-300 hover:text-amber-800",
+                    error: active ? "bg-error/10 text-error-dim border-error/30 ring-1 ring-error/20" : "border-outline-variant/20 text-on-surface-variant hover:border-error/30 hover:text-error-dim",
+                  };
+                  return (
+                    <button key={val} onClick={() => { setDecision(val); preset(p as "full" | "ai" | "zero"); }}
+                      className={`flex items-center gap-3 w-full px-4 py-3.5 rounded-xl text-sm font-semibold font-headline transition-all active:scale-[0.98] cursor-pointer border text-left bg-surface-container-lowest ${s[color]}`}>
+                      <Icon className="w-5 h-5 shrink-0" strokeWidth={2} />
+                      <div><p>{label}</p><p className="text-[11px] font-normal mt-0.5 opacity-70">{sub}</p></div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div>
+                <label className="text-[10px] font-semibold font-headline text-on-surface-variant uppercase tracking-wider mb-2 block">
+                  HR Note <span className="normal-case tracking-normal font-normal">(optional)</span>
+                </label>
+                <textarea rows={3} placeholder="Add a note for the employee…" value={note} onChange={e => setNote(e.target.value)}
+                  className="w-full bg-surface-container-low rounded-xl px-4 py-3 text-sm text-on-surface placeholder:text-on-surface-variant/50 outline-none ring-1 ring-outline-variant/20 focus:ring-primary/40 resize-none transition-all" />
+              </div>
+
+              <button id="submit-review" onClick={submit} disabled={!decision}
+                className={`w-full py-3 rounded-xl text-sm font-semibold font-headline transition-all active:scale-[0.97] ${decision ? "bg-primary text-on-primary shadow-[0_4px_16px_rgba(70,71,211,0.25)] hover:bg-primary-dim cursor-pointer" : "bg-surface-container text-on-surface-variant/50 cursor-not-allowed"}`}>
+                {decision === "approve_full" ? "Submit Full Approval" : decision === "approve_adjusted" ? "Submit Adjusted Approval" : decision === "reject" ? "Submit Rejection" : "Select a decision"}
+              </button>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      {lightbox && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-inverse-surface/60 backdrop-blur-sm p-6" onClick={() => setLightbox(null)}>
+          <div className="relative max-w-3xl max-h-[85vh] rounded-2xl overflow-hidden shadow-2xl">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={lightbox} alt="Receipt" className="w-full h-full object-contain" />
+            <button onClick={() => setLightbox(null)} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-inverse-surface/70 text-white flex items-center justify-center">✕</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

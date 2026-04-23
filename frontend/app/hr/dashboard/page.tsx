@@ -25,14 +25,14 @@ import { AiStatus, Claim, ATTENTION_CLAIMS, APPROVED_CLAIMS } from "../hr_compon
 const STATUS_ICON: Record<AiStatus, JSX.Element> = {
   "Policy Flagged": <AlertTriangle className="w-3.5 h-3.5" strokeWidth={2.5} />,
   "Awaiting Review": <Clock className="w-3.5 h-3.5" strokeWidth={2.5} />,
-  "Auto-Approved": <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={2.5} />,
+  "Passed AI Review": <CheckCircle2 className="w-3.5 h-3.5" strokeWidth={2.5} />,
   "Low Confidence": <HelpCircle className="w-3.5 h-3.5" strokeWidth={2.5} />,
 };
 
 const STATUS_STYLE: Record<AiStatus, string> = {
   "Policy Flagged": "bg-error/10 text-error-dim",
   "Awaiting Review": "bg-amber-100 text-amber-800",
-  "Auto-Approved": "bg-emerald-50 text-emerald-700",
+  "Passed AI Review": "bg-emerald-50 text-emerald-700",
   "Low Confidence": "bg-tertiary/10 text-tertiary-dim",
 };
 
@@ -591,11 +591,11 @@ export default function HRDashboardPage() {
   const modalTitle =
     activeTab === "attention"
       ? "All Pending Requests"
-      : "All Approved Claims";
+      : "All Passed AI Review Claims";
   const viewAllLabel =
     activeTab === "attention"
       ? "View All Pending Requests"
-      : "View All Approved Claims";
+      : "View All Passed AI Review Claims";
 
   return (
     <div className="relative min-h-full p-6 md:p-10 lg:p-12">
@@ -733,7 +733,7 @@ export default function HRDashboardPage() {
           </button>
           
           <button
-            id="tab-auto-approved"
+            id="tab-passed-ai-review"
             onClick={() => setActiveTab("approved")}
             className={`pb-3 text-sm font-headline font-bold transition-all duration-300 ease-out flex items-center gap-2
                         cursor-pointer hover:-translate-y-0.5 active:scale-95 border-b-2
@@ -743,7 +743,7 @@ export default function HRDashboardPage() {
                             : "text-on-surface-variant border-transparent hover:text-on-surface"
                         }`}
           >
-            Auto-Approved
+            Passed AI Review
             <span
               className={`text-[10px] px-1.5 py-0.5 rounded-full font-label font-semibold transition-colors duration-300 ${
                 activeTab === "approved"
