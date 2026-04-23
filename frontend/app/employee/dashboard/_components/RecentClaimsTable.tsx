@@ -1,65 +1,57 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import { Plane, UtensilsCrossed, Monitor, ChevronRight } from "lucide-react";
 import { LucideIcon } from "lucide-react";
+import { getRecentClaims } from "@/lib/actions/dashboard";
+import type { ClaimSummary } from "@/lib/api/types";
 
 /* ─── Types ──────────────────────────────────────────── */
-type ClaimStatus = "Pending" | "Approved" | "Paid";
+type ClaimStatus = "Pending" | "Approved" | "Paid" | "Rejected";
 
-interface Claim {
-  id: string;
-  date: string;
-  category: string;
-  subCategory: string;
+interface DisplayClaim extends ClaimSummary {
   categoryIcon: LucideIcon;
-  amount: string;
-  status: ClaimStatus;
 }
 
-/* ─── Static mock data ───────────────────────────────── */
-const CLAIMS: Claim[] = [
-  {
-    id:           "#RC-8892",
-    date:         "Oct 24, 2023",
-    category:     "Travel",
-    subCategory:  "Flight",
-    categoryIcon: Plane,
-    amount:       "$850.00",
-    status:       "Pending",
-  },
-  {
-    id:           "#RC-8891",
-    date:         "Oct 22, 2023",
-    category:     "Meals",
-    subCategory:  "Lunch",
-    categoryIcon: UtensilsCrossed,  
-    amount:       "$124.50",
-    status:       "Approved",
-  },
-  {
-    id:           "#RC-8885",
-    date:         "Oct 15, 2023",
-    category:     "Equipment",
-    subCategory:  "Laptop",
-    categoryIcon: Monitor,
-    amount:       "$450.00",
-    status:       "Paid",
-  },
-];
+/* ─── Icon mapping ───────────────────────────────────── */
+const CATEGORY_ICON_MAP: Record<string, LucideIcon> = {
+  Travel: Plane,
+  Meals: UtensilsCrossed,
+  Equipment: Monitor,
+};
+
+function mapClaimForDisplay(claim: ClaimSummary): DisplayClaim {
+  return {
+    ...claim,
+    categoryIcon: CATEGORY_ICON_MAP[claim.category] ?? Monitor,
+  };
+}
 
 /* ─── Status styling maps ────────────────────────────── */
 const STATUS_BADGE: Record<ClaimStatus, string> = {
   "Pending":    "bg-secondary-container/50 text-on-secondary-container",
   "Approved":   "bg-primary/10 text-primary",
   "Paid": "bg-tertiary/10 text-tertiary",
+  "Rejected": "bg-error/10 text-error",
 };
 
 const STATUS_DOT: Record<ClaimStatus, string> = {
   "Pending":    "bg-secondary",
   "Approved":   "bg-primary",
   "Paid": "bg-tertiary",
+  "Rejected": "bg-error",
 };
 
 /* ─── Component ──────────────────────────────────────── */
 export default function RecentClaimsTable() {
+  const [claims, setClaims] = useState<DisplayClaim[]>([]);
+
+  useEffect(() => {
+    getRecentClaims(3).then((data) => {
+      setClaims(data.map(mapClaimForDisplay));
+    });
+  }, []);
+
   return (
     <section
       aria-labelledby="recent-claims-heading"
@@ -96,7 +88,7 @@ export default function RecentClaimsTable() {
             </tr>
           </thead>
           <tbody className="font-body text-sm">
-            {CLAIMS.map((claim) => (
+            {claims.map((claim) => (
               <tr
                 key={claim.id}
                 className="border-t border-outline-variant/5 hover:bg-surface-container-highest/40 transition-colors cursor-pointer group"
@@ -124,10 +116,10 @@ export default function RecentClaimsTable() {
                 </td>
                 <td className="p-4">
                   <span
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_BADGE[claim.status]}`}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${STATUS_BADGE[claim.status as ClaimStatus] ?? ""}`}
                   >
                     <span
-                      className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[claim.status]}`}
+                      className={`w-1.5 h-1.5 rounded-full ${STATUS_DOT[claim.status as ClaimStatus] ?? ""}`}
                     />
                     {claim.status}
                   </span>
@@ -140,7 +132,7 @@ export default function RecentClaimsTable() {
 
       {/* ── Mobile: Card list ─────────────────────────── */}
       <div className="md:hidden flex flex-col gap-3">
-        {CLAIMS.map((claim) => (
+        {claims.map((claim) => (
           <div
             key={claim.id}
             className="bg-surface-container-lowest p-4 rounded-xl border border-outline-variant/10 flex items-center justify-between hover:bg-surface-container-highest/30 transition-colors active:scale-[0.98]"
@@ -166,7 +158,7 @@ export default function RecentClaimsTable() {
                 {claim.amount}
               </p>
               <span
-                className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[claim.status]}`}
+                className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${STATUS_BADGE[claim.status as ClaimStatus] ?? ""}`}
               >
                 {claim.status}
               </span>

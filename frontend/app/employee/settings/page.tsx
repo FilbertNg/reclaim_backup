@@ -1,11 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Settings, User, Bell, Shield, Wallet, ChevronRight, Save, LifeBuoy } from "lucide-react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { getBankingDetails, updateProfile } from "@/lib/actions/settings";
+import type { BankingDetails } from "@/lib/api/types";
 
 export default function SettingsPage() {
   const { user } = useAuth();
+  const [banking, setBanking] = useState<BankingDetails | null>(null);
+
+  // Fetch banking details via server action
+  useEffect(() => {
+    getBankingDetails().then(setBanking);
+  }, []);
 
   return (
     <main className="min-h-dvh pb-24 md:pb-12 bg-surface">
@@ -104,8 +113,12 @@ export default function SettingsPage() {
                       <Wallet className="w-5 h-5" />
                     </div>
                     <div>
-                      <p className="font-headline font-bold text-sm text-on-surface">Chase Checking •••• 4092</p>
-                      <p className="font-body text-xs text-on-surface-variant">Primary routing • Updated 2 mos ago</p>
+                      <p className="font-headline font-bold text-sm text-on-surface">
+                        {banking ? `${banking.institutionName} •••• ${banking.accountLastFour}` : "Loading…"}
+                      </p>
+                      <p className="font-body text-xs text-on-surface-variant">
+                        {banking ? `${banking.routingType} • Updated ${banking.updatedAt}` : ""}
+                      </p>
                     </div>
                   </div>
                   <ChevronRight className="w-5 h-5 text-on-surface-variant group-hover:translate-x-1 transition-transform" />

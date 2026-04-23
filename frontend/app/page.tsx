@@ -1,33 +1,20 @@
-"use client";
+import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/actions/auth";
 
-import { useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/context/AuthContext";
+/**
+ * Root page — server component that redirects based on auth state.
+ * Uses the getCurrentUser server action to check session server-side.
+ */
+export default async function Home() {
+  const user = await getCurrentUser();
 
-export default function Home() {
-  const { user, isLoading } = useAuth();
-  const router = useRouter();
+  if (!user) {
+    redirect("/login");
+  }
 
-  useEffect(() => {
-    if (!isLoading) {
-      if (user) {
-        if (user.role === "HR") {
-          console.log("hr");
-          router.push("/hr/dashboard");
-        } else {
-          console.log("employee");
-          router.push("/employee/submit");
-        }
-      } else {
-        router.push("/login");
-      }
-    }
-  }, [user, isLoading, router]);
+  if (user.role === "HR") {
+    redirect("/hr/dashboard");
+  }
 
-  return (
-    <div className="flex min-h-screen items-center justify-center">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-    </div>
-  );
+  redirect("/employee/dashboard");
 }
-

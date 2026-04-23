@@ -32,19 +32,19 @@ export default function LoginPage() {
     try {
       await login(values.email, values.password);
       // Redirection handled by AuthContext
-    } catch (err: any) {
-      setError(err.message || "Login failed. Please check your credentials.");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Login failed. Please check your credentials.";
+      setError(message);
     }
   }
 
   const handleDemoLogin = async (email: string, role: "HR" | "Employee") => {
     setError(null);
     try {
-      // For demo purposes, we'll use a generic password. In a real app,
-      // you might have specific demo accounts or a different flow.
-      await login(email, "password"); // Assuming a default password for demo
-    } catch (err: any) {
-      setError(err.message || `Demo login for ${role} failed.`);
+      await login(email, "password");
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : `Demo login for ${role} failed.`;
+      setError(message);
     }
   };
 
