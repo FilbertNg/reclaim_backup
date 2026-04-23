@@ -1,5 +1,6 @@
 import re
 import json
+import math
 from typing import TypedDict, List, Dict, Optional
 from datetime import datetime, timezone
 from pathlib import Path
@@ -7,11 +8,12 @@ from pathlib import Path
 import pymupdf4llm
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langchain_text_splitters import MarkdownTextSplitter
 from langgraph.graph import StateGraph, START, END
 from sqlmodel import Session
 
-from core.models import Policy
-from engine.llm import get_chat_llm
+from core.models import Policy, PolicySection
+from engine.llm import get_chat_llm, get_embeddings
 from engine.prompts.policy_prompts import (
     POLICY_CATEGORY_SUMMARY_PROMPT,
     POLICY_CONDITIONS_PROMPT,
@@ -133,12 +135,84 @@ def save_to_db(state: PolicyWorkflowState, session: Session) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Node 5: embed_and_save_sections
+# ---------------------------------------------------------------------------
+
+_CHUNK_THRESHOLD = 1500   # chars — split only if content exceeds this
+_TARGET_CHUNK_SIZE = 1000 # chars per chunk (target)
+
+
+def _split_markdown(text: str) -> List[str]:
+    """
+    Split markdown text into sections.
+    If total length <= _CHUNK_THRESHOLD, returns the whole text as one chunk.
+    Otherwise splits into ceil(len/1000) roughly equal chunks using
+    MarkdownTextSplitter as the delimiter-aware splitter.
+    """
+    if len(text) <= _CHUNK_THRESHOLD:
+        return [text]
+
+    num_chunks = math.ceil(len(text) / _TARGET_CHUNK_SIZE)
+    chunk_size = math.ceil(len(text) / num_chunks)
+
+    splitter = MarkdownTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=100,
+    )
+    chunks = splitter.split_text(text)
+    return chunks if chunks else [text]
+
+
+def embed_and_save_sections(state: PolicyWorkflowState, session: Session) -> dict:
+    """
+    Split each markdown doc into sections, embed them, and persist as
+    PolicySection rows linked to the newly created policy.
+    """
+    policy_id = state.get("policy_id")
+    if not policy_id:
+        print("embed_and_save_sections: no policy_id, skipping.")
+        return {}
+
+    markdown_docs = state.get("markdown_docs", [])
+    if not markdown_docs:
+        return {}
+
+    embedder = get_embeddings()
+
+    for doc in markdown_docs:
+        file_name = Path(doc["file"]).name
+        chunks = _split_markdown(doc["text"])
+        print(f"Embedding {len(chunks)} sections from '{file_name}'...")
+
+        # Batch-embed all chunks in one API call
+        try:
+            vectors = embedder.embed_documents(chunks)
+        except Exception as e:
+            print(f"Embedding failed for '{file_name}': {e}")
+            continue
+
+        for idx, (chunk, vector) in enumerate(zip(chunks, vectors)):
+            section = PolicySection(
+                policy_id=policy_id,
+                content=chunk,
+                metadata_data={"source_file": file_name, "chunk_index": idx},
+                embedding=vector,
+            )
+            session.add(section)
+
+    session.commit()
+    print(f"Sections embedded and saved for policy {policy_id}.")
+    return {}
+
+
+# ---------------------------------------------------------------------------
 # Graph compilation + entry point
 # ---------------------------------------------------------------------------
 
 def run_policy_workflow(file_paths: List[str], alias: str, session: Session) -> str:
     """Run the policy upload pipeline. Returns the policy_id string."""
     def _save_to_db(state): return save_to_db(state, session)
+    def _embed_and_save_sections(state): return embed_and_save_sections(state, session)
 
     graph = StateGraph(PolicyWorkflowState)
 
@@ -146,12 +220,14 @@ def run_policy_workflow(file_paths: List[str], alias: str, session: Session) -> 
     graph.add_node("extract_categories_and_summary", extract_categories_and_summary)
     graph.add_node("extract_conditions", extract_conditions)
     graph.add_node("save_to_db", _save_to_db)
+    graph.add_node("embed_and_save_sections", _embed_and_save_sections)
 
     graph.add_edge(START, "process_pdfs")
     graph.add_edge("process_pdfs", "extract_categories_and_summary")
     graph.add_edge("extract_categories_and_summary", "extract_conditions")
     graph.add_edge("extract_conditions", "save_to_db")
-    graph.add_edge("save_to_db", END)
+    graph.add_edge("save_to_db", "embed_and_save_sections")
+    graph.add_edge("embed_and_save_sections", END)
 
     app = graph.compile()
     result = app.invoke({

@@ -144,7 +144,7 @@ def _build_aggregated_from_settlement(
         "employee": {
             "name": settlement.employee_name or "",
             "id": settlement.employee_id or "",
-            "user_code": settlement.employee_code or user_code,
+            "user_code": user_code or settlement.employee_code or "",
             "department": settlement.employee_department or "",
             "destination": settlement.destination or "",
             "departure_date": settlement.departure_date or "",

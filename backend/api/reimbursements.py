@@ -1,3 +1,4 @@
+import logging
 from typing import List, Optional
 from uuid import UUID
 
@@ -6,17 +7,16 @@ from pydantic import BaseModel
 from sqlmodel import Session, select
 
 from api import deps
-from core.models import User, Reimbursement, SupportingDocument, UserRole, TravelSettlement
+from core.models import User, Reimbursement, SupportingDocument, UserRole, TravelSettlement, Policy
 from engine.agents.compliance_agent import run_compliance_workflow
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 class AnalyzeReimbursementRequest(BaseModel):
     settlement_id: str              # required — from Workflow 2 upload response
     policy_id: str
-    main_category: str
-    sub_category: str
     all_category: Optional[List[str]] = None
     # document_ids is accepted but optional; the basket is sourced from the settlement
     document_ids: Optional[List[str]] = None
@@ -68,10 +68,11 @@ def analyze_reimbursement(
     """Run basket compliance analysis on a TravelSettlement against a policy."""
     try:
         settlement_uuid = UUID(request.settlement_id)
+        policy_uuid = UUID(request.policy_id)
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid settlement_id: {request.settlement_id}",
+            detail=f"Invalid settlement_id or policy_id",
         )
 
     settlement = db.get(TravelSettlement, settlement_uuid)
@@ -79,6 +80,25 @@ def analyze_reimbursement(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Settlement {request.settlement_id} not found",
+        )
+
+    # Fetch policy to get main_category and reimbursable categories
+    policy = db.get(Policy, policy_uuid)
+    if not policy:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Policy {request.policy_id} not found",
+        )
+
+    # Auto-fetch main_category from policy (first reimbursable category)
+    main_category = ""
+    if policy.reimbursable_category and len(policy.reimbursable_category) > 0:
+        main_category = policy.reimbursable_category[0]
+
+    if not main_category:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Policy has no reimbursable categories",
         )
 
     # Cache check: return cached result if no human edits and settlement was already evaluated
@@ -115,21 +135,25 @@ def analyze_reimbursement(
     if not all_category:
         all_category = settlement.all_category or []
     if not all_category:
-        all_category = [request.main_category] if request.main_category else []
+        # Use all reimbursable categories from policy if not provided
+        all_category = policy.reimbursable_category or [main_category]
 
     try:
         result = run_compliance_workflow(
             settlement_id=request.settlement_id,
             policy_id=request.policy_id,
-            main_category=request.main_category,
-            sub_category=request.sub_category,
+            main_category=main_category,
             user_id=str(current_user.user_id),
             all_category=all_category,
             session=db,
             document_ids=request.document_ids,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Compliance workflow failed: {e}")
+        logger.exception(f"Compliance workflow failed")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Compliance workflow failed: {type(e).__name__}: {str(e)}"
+        )
 
     if result.get("reimbursement_id"):
         reim = db.get(Reimbursement, UUID(result["reimbursement_id"]))
@@ -151,4 +175,10 @@ def analyze_reimbursement(
                 "message": "Re-evaluated due to human edits" if has_edits else "First-time evaluation",
             }
 
-    return {**result, "cached": False, "message": "First-time evaluation"}
+    return {
+        **result,
+        "main_category": main_category,
+        "sub_category": all_category or [],
+        "cached": False,
+        "message": "First-time evaluation"
+    }

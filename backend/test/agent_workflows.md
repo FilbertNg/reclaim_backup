@@ -1,466 +1,417 @@
-# Reclaim — Agent Workflows Documentation
+# Reclaim — Agent Workflow Documentation
 
-## Overview
-
-Reclaim uses three AI-powered workflows to automate HR reimbursement processing.
-All LLM calls are routed through **OpenRouter** (vision/text) and **ILMU API** (chat) and traced in **LangSmith** (project: `um_hackathon`).
-
-```
-Employee                HR                   AI Agents                    Database
-   │                     │                       │                            │
-   │      Upload PDFs     │                       │                            │
-   │─────────────────────>│                       │                            │
-   │                     │── run_policy_workflow─>│                            │
-   │                     │                       │──── Policy row ───────────>│
-   │                     │                       │                            │
-   │── Upload Receipts ──────────────────────────>│                            │
-   │          process_receipts (parallel OCR)     │                            │
-   │                     │                       │──── SupportingDocument ───>│
-   │                     │                       │──── TravelSettlement ─────>│
-   │                     │<── settlement_id ──────│                            │
-   │                     │                       │                            │
-   │── Analyze claim ─────────────────────────────>│  (settlement_id required) │
-   │       run_compliance_workflow                │                            │
-   │                     │                       │──── Reimbursement ────────>│
-   │<─── Judgment ─────────────────────────────────│                           │
-```
+> **Last updated:** 2026-04-23  
+> **Stack:** FastAPI · LangChain · LangGraph · PostgreSQL (pgvector) · SQLModel
 
 ---
 
-## Workflow 1 — HR Policy Upload
+## Table of Contents
 
-**Trigger**: `POST /api/v1/policies/upload` (HR role required)
-**File**: `backend/engine/agents/policy_agent.py`
-**LangGraph**: Sequential 4-node pipeline
+1. [Overview](#overview)
+2. [Workflow 1 — Policy Ingestion Agent](#workflow-1--policy-ingestion-agent)
+3. [Workflow 2 — Multi-Receipt OCR Agent](#workflow-2--multi-receipt-ocr-agent)
+4. [Workflow 3 — Compliance Basket Evaluation Agent](#workflow-3--compliance-basket-evaluation-agent)
+5. [Shared Infrastructure](#shared-infrastructure)
+6. [Database Schema Quick Reference](#database-schema-quick-reference)
 
-### Flow
+---
+
+## Overview
+
+Reclaim processes HR reimbursement claims through three sequential agent workflows:
 
 ```
-[START]
-   │
-   ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 1: process_pdfs                                  │
-│  • pymupdf4llm converts each PDF → Markdown text       │
-│  • Strips image placeholders                           │
-│  State: markdown_docs = [{file, text}]                 │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 2: extract_categories_and_summary                │
-│  • Combines all markdown (cap 80k chars)               │
-│  • Chat LLM (JSON mode)                                │
-│  • Prompt: POLICY_CATEGORY_SUMMARY_PROMPT              │
-│  • Extracts: title, categories[], overview_summary     │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 3: extract_conditions                            │
-│  • Combines all markdown (cap 80k chars)               │
-│  • Chat LLM (JSON mode)                                │
-│  • Prompt: POLICY_CONDITIONS_PROMPT                    │
-│  • Extracts: {CategoryName: {condition[]}}             │
-│  • Note: required_documents removed from schema        │
-│  State: mandatory_procedures                           │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 4: save_to_db                                    │
-│  • Creates Policy row (alias, title, categories,       │
-│    overview_summary, mandatory_conditions as JSON,     │
-│    status=ACTIVE)                                      │
-│  • session.commit()                                    │
-│  Returns: policy_id                                    │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                         [END]
+[HR uploads policy PDF]
+        ↓ Workflow 1
+[Policy stored + conditions extracted]
+
+[Employee uploads receipts]
+        ↓ Workflow 2
+[TravelSettlement created with receipts basket]
+
+[HR/Employee triggers compliance check]
+        ↓ Workflow 3
+[Reimbursement record created with line_items + totals]
 ```
 
-### Database Writes
+Each workflow is exposed as a FastAPI router and can be exercised from the demo page at `/test/demo`.
 
-| Table | Fields Written |
-|-------|---------------|
-| `policies` | alias, title, reimbursable_category[], overview_summary, mandatory_conditions (JSON string), source_file_url, status="ACTIVE" |
+---
 
-### API Input
+## Workflow 1 — Policy Ingestion Agent
 
-```http
+**Router:** `backend/api/policies.py`  
+**Agent:** `backend/engine/agents/policy_agent.py`  
+**Prompt:** `backend/engine/prompts/policy_prompts.py`
+
+### Purpose
+
+Accepts one or more HR policy PDF files, extracts structured metadata via an LLM, and stores everything needed for Workflow 3's compliance checks.
+
+### API Endpoint
+
+```
 POST /api/v1/policies/upload
-Authorization: Bearer <HR token>
 Content-Type: multipart/form-data
 
-alias=Business Travel Policy 2024
-files=policy_main.pdf
-files=appendix_forms.pdf
+Fields:
+  alias   (str)         – Human-readable label e.g. "Business Travel Policy 2024"
+  files   (File[])      – One or more .pdf files
 ```
 
-### API Output
+**Requires:** HR role JWT.
+
+### Processing Pipeline
+
+```
+PDF files
+  │
+  ├─ pymupdf4llm.to_markdown()   ← per file, extracted to Markdown text
+  │
+  └─ LLM (text model)
+       Prompt: extract title, reimbursable_category[], overview_summary,
+               mandatory_conditions (JSON by category → conditions[])
+       │
+       └─ saved to DB ──→ Policy row
+                      ──→ PolicySection rows (chunked, for RAG keyword search)
+```
+
+### Output
 
 ```json
 {
   "policy_id": "uuid",
+  "title": "Business Travel and Expense Policy",
   "alias": "Business Travel Policy 2024",
-  "title": "Business Travel Reimbursement Policy",
-  "reimbursable_category": ["Air Transportation", "Hotel Accommodation"],
-  "overview_summary": "This policy governs...",
+  "reimbursable_category": ["meals", "accommodation", "transportation"],
+  "overview_summary": "...",
+  "effective_date": "2024-01-01T00:00:00Z",
   "status": "ACTIVE"
 }
 ```
 
+### DB Tables Written
+
+| Table | Description |
+|-------|-------------|
+| `policies` | One row per uploaded policy |
+| `policy_sections` | Chunked text used by Workflow 3's RAG tool |
+
 ---
 
-## Workflow 2 — Multi-Receipt OCR (Parallel)
+## Workflow 2 — Multi-Receipt OCR Agent
 
-**Trigger**: `POST /api/v1/documents/upload`
-**File**: `backend/engine/agents/document_agent.py`
-**Pattern**: `process_receipts()` with `ThreadPoolExecutor` for parallel LLM calls + serial DB writes
+**Router:** `backend/api/documents.py`  
+**Agent:** `backend/engine/agents/document_agent.py`  
+**Prompts:** `backend/engine/prompts/document_prompts.py`
 
-### Flow
+### Purpose
+
+Accepts one or more receipt files (images or PDFs) and runs parallel OCR via the Vision LLM (images) or Text LLM (PDFs). Results are aggregated into a `TravelSettlement` basket ready for Workflow 3.
+
+### API Endpoint
 
 ```
-[Upload 1..N files]
-        │
-        ▼
-┌────────────────────────────────────────────────────────┐
-│  Query active policies → build categories list         │
-│  (used for LLM category matching)                      │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-              ┌────────────┴────────────┐
-              │  ThreadPoolExecutor     │  (up to 4 workers)
-              │  per file in parallel:  │
-              │                         │
-              │  if image:              │
-              │    _ocr_image()         │
-              │    Vision LLM + base64  │
-              │                         │
-              │  if PDF:                │
-              │    pymupdf4llm → text   │
-              │    _ocr_pdf()           │
-              │    Text LLM (JSON mode) │
-              │                         │
-              │  Both use same          │
-              │  RECEIPT_OCR_PROMPT +   │
-              │  injected categories    │
-              └────────────┬────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  _is_unreadable() check per receipt                    │
-│  • If all key fields are null/default → warning added  │
-│                                                        │
-│  _build_warnings() per receipt                         │
-│  • confidence < 0.7                                    │
-│  • Missing required fields                             │
-│  • Images: visual anomaly check                        │
-│  • PDFs: "standard visual anomaly detection bypassed"  │
-│  • Receipt name ≠ employee name                        │
-│                                                        │
-│  Receipts WITH warnings → skipped_receipts[]           │
-│  Receipts WITHOUT warnings → receipts[] (template)     │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Serial DB writes (thread-safe)                        │
-│  • SupportingDocument row per file (all receipts)      │
-│  • TravelSettlement row (receipts[], totals,           │
-│    employee context, all_category, main_category)      │
-│  • SupportingDocument.settlement_id ← settlement.id   │
-│  • session.commit()                                    │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                         [END]
+POST /api/v1/documents/upload
+Content-Type: multipart/form-data
+
+Fields:
+  files   (File[])  – JPEG / PNG / WEBP / PDF receipt files
 ```
 
-### Unreadability Check
+**Requires:** Any authenticated user JWT.
 
-A receipt is marked unreadable if ALL of the following are absent/null/default:
-`merchant_name`, `date`, `total_amount`, `currency`, `receipt_number`, `items_summary`
+### Processing Pipeline
 
-An "unreadable" warning is added and the receipt is excluded from the template (still saved to DB).
-
-### OCR Prompt Behaviour
-
-- **Missing fields**: LLM returns `"Not found in Receipt"` for all missing string fields
-- **Category**: LLM selects from the injected active policy categories, or `"No Reimbursement Policy for this receipt"`
-- All fields stored in `supporting_documents.extracted_data` JSONB
-
-### Expense Column Mapping
-
-| Category keyword contains | → Column |
-|---------------------------|----------|
-| transport, travel, air, flight, taxi, ... | transportation |
-| hotel, accommodation, lodging, ... | accommodation |
-| meal, food, dining, restaurant, ... | meals |
-| anything else | others |
-
-### HTML-to-PDF Settlement Form
-
-```python
-from engine.tools.generate_reimbursement_template import generate_reimbursement_template
-generate_reimbursement_template(aggregated_results, output_path)
+```
+Files[]
+  │
+  ├─ [Image: .jpg/.png/.webp]          ├─ [PDF: .pdf]
+  │   Vision LLM (base64 encoded)      │   pymupdf4llm → Markdown
+  │   RECEIPT_OCR_PROMPT               │   Text LLM
+  │                                    │   RECEIPT_OCR_PROMPT_WITH_CATEGORIES
+  │
+  └─ parallel via ThreadPoolExecutor (max 4 workers)
+       │
+       ├─ Per receipt: extract fields, detect warnings, map to expense column
+       │    Columns: transportation | accommodation | meals | others
+       │
+       ├─ Serial DB writes:
+       │    SupportingDocument row per file (with extracted_data JSON)
+       │
+       └─ Aggregate into TravelSettlement:
+            receipts[]        – valid receipts (no warnings)
+            skipped_receipts[] – receipts with warnings
+            totals{}          – per-column subtotals + grand_total
+            all_category[]    – unique expense categories found
+            main_category     – most frequent category
 ```
 
-- Module: `backend/engine/tools/generate_reimbursement_template.py`
-- Template: `backend/engine/templates/reimbursement_template.html` (Jinja2)
-- Renderer: `xhtml2pdf` (pure Python)
-- API: `POST /api/v1/documents/generate-template`
+### Readability Check
 
-### Database Writes
+A receipt is considered **unreadable** (and moved to `skipped_receipts`) if all of these fields are absent/null: `merchant_name`, `date`, `total_amount`, `currency`, `receipt_number`, `items_summary`.
 
-| Table | Fields Written |
-|-------|---------------|
-| `supporting_documents` | user_id, name, path, type, is_main=True (default), document_class="RECEIPT", extracted_data, settlement_id |
-| `travel_settlements` | employee context, all_category, main_category, receipts (template-only), totals, currency |
-
-### API Output
+### Output
 
 ```json
 {
   "settlement_id": "uuid",
-  "document_ids": ["uuid1", "uuid2", "uuid3"],
-  "employee": { "name": "John Doe", "id": "uuid", "department": "", "purpose": "Air Transportation, Meals" },
+  "document_ids": ["uuid", "uuid", "..."],
   "receipts": [
     {
-      "document_id": "uuid1",
-      "date": "2026-04-20",
-      "description": "AirAsia - Air Travel",
-      "category": "Air Transportation",
+      "document_id": "uuid",
+      "date": "2026-04-18",
+      "description": "Sushi Zanmai - Client dinner",
+      "category": "meals",
       "currency": "MYR",
-      "amount": 350.00,
-      "transportation": 350.00,
+      "amount": 150.00,
+      "transportation": 0.0,
       "accommodation": 0.0,
-      "meals": 0.0,
+      "meals": 150.00,
       "others": 0.0,
-      "warnings": []
+      "warnings": [],
+      "extracted_data": { "...": "..." }
     }
   ],
-  "skipped_receipts": [
-    {
-      "document_id": "uuid3",
-      "description": "unnamed_upload",
-      "warnings": ["Receipt is unreadable or contains no extractable data."]
-    }
-  ],
+  "skipped_receipts": [],
   "totals": {
-    "transportation": 350.00,
-    "accommodation": 0.0,
-    "meals": 25.50,
+    "transportation": 0.0,
+    "accommodation": 1200.0,
+    "meals": 150.0,
     "others": 0.0,
-    "grand_total": 375.50,
+    "grand_total": 1350.0,
     "currency": "MYR"
   },
-  "all_category": ["Air Transportation", "Meals"],
-  "main_category": "Air Transportation",
-  "all_warnings": []
+  "all_warnings": [],
+  "all_category": ["meals", "accommodation"],
+  "main_category": "accommodation"
 }
 ```
+
+### DB Tables Written
+
+| Table | Description |
+|-------|-------------|
+| `supporting_documents` | One row per uploaded file, stores `extracted_data` JSON |
+| `travel_settlements` | Aggregated basket record; `receipts[]` JSONB holds all receipt rows |
+
+### PDF Generation (optional)
+
+```
+POST /api/v1/documents/generate-template
+Body: { document_ids: ["uuid", ...] }
+```
+
+Renders `reimbursement_template.html` via `xhtml2pdf` and saves a Business Travel Settlement PDF to `/storage/pdfs/`.
 
 ---
 
-## Workflow 3 — Compliance Analysis
+## Workflow 3 — Compliance Basket Evaluation Agent
 
-**Trigger**: `POST /api/v1/reimbursements/analyze`
-**File**: `backend/engine/agents/compliance_agent.py`
-**LangGraph**: Sequential 3-node pipeline (direct LLM evaluation + policy RAG text search)
-**Requires**: `settlement_id` from Workflow 2
+**Router:** `backend/api/reimbursements.py`  
+**Agent:** `backend/engine/agents/compliance_agent.py`  
+**Prompt:** `backend/engine/prompts/compliance_prompts.py`
 
-### Flow
+### Purpose
+
+Evaluates an **entire `TravelSettlement` basket** of receipts against an HR policy in one LLM call, producing per-receipt verdicts (`line_items`) and settlement-level totals. Uses a **ReAct-style LangGraph** so the agent can dynamically call tools to look up dates or policy limits mid-reasoning.
+
+### API Endpoint
 
 ```
-[START]
-   │
-   ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 1: load_context                                  │
-│  • Fetch User (name, department, rank)                 │
-│  • Fetch Policy, parse mandatory_conditions JSON       │
-│  • Resolve all_category from TravelSettlement          │
-│  • Combine conditions from ALL categories (deduped)    │
-│  • search_policy_sections() — keyword RAG              │
-│    (retrieves policy text for amount/limit lookup)     │
-│  • Fetch main receipt OCR data (is_main=True)          │
-│  State: user, policy, all_category, combined_conditions│
-│         policy_sections_text, receipt_extracted_data   │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 2: check_conditions  (single LLM call)           │
-│  • AGENT_EVALUATION_PROMPT with all context injected:  │
-│    - combined_conditions                               │
-│    - policy_sections_text (RAG excerpts)               │
-│    - receipt OCR data                                  │
-│    - employee rank + department                        │
-│  • LLM executes in one pass:                           │
-│    1. chain_of_thought: per-condition PASS/FAIL/MANUAL │
-│    2. amount: {category: {original, reimbursement}}    │
-│       (determined from policy sections by rank)        │
-│    3. confidence: 0.0–1.0                              │
-│    4. judgment: APPROVE / FLAG / MANUAL REVIEW         │
-│    5. summary: 2-3 sentence explanation                │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-┌────────────────────────────────────────────────────────┐
-│  Node 3: save_reimbursement                            │
-│  • Creates Reimbursement row (status="REVIEW")         │
-│    - amount stored as JSONB {category: {orig, reimb}}  │
-│    - confidence stored as FLOAT                        │
-│    - settlement_id FK linked                           │
-│  • Updates SupportingDocument.reim_id for all docs     │
-│  • Back-links TravelSettlement.reimbursement_id        │
-│  • session.commit()                                    │
-└──────────────────────────┬─────────────────────────────┘
-                           │
-                         [END]
-```
-
-### Policy RAG Tool
-
-File: `backend/engine/tools/rag_tool.py`
-
-```python
-search_policy_sections(policy_id, session, keywords, limit=8) → str
-```
-
-- No embeddings (pgvector retired); uses keyword ILIKE matching against `policy_sections.content`
-- Returns concatenated excerpts (up to 1500 chars per section) injected into the LLM prompt
-- Keywords: category names + ["amount", "limit", "rate", "maximum"]
-
-### LLM Instances Used
-
-| Instance | Model | Mode | Used For |
-|----------|-------|------|----------|
-| `get_chat_llm()` | ilmu-glm-5.1 (ILMU API) | JSON mode | check_conditions (single combined call) |
-
-### Database Writes
-
-| Table | Fields Written |
-|-------|---------------|
-| `reimbursements` | user_id, policy_id, settlement_id, main_category, sub_category, employee_department, employee_rank, currency, amount (JSONB), confidence (FLOAT), judgment, status="REVIEW", chain_of_thought (JSONB), summary |
-| `supporting_documents` | reim_id (updated for all input document_ids) |
-| `travel_settlements` | reimbursement_id (back-linked after reim created) |
-
-### API Input
-
-```http
 POST /api/v1/reimbursements/analyze
-Authorization: Bearer <Employee token>
 Content-Type: application/json
 
 {
-  "document_ids": ["uuid-receipt1", "uuid-receipt2"],
-  "settlement_id": "uuid-from-wf2",
-  "policy_id": "uuid-policy",
+  "settlement_id": "uuid",        ← required; from Workflow 2 output
+  "policy_id": "uuid",            ← required; from Workflow 1 output
   "main_category": "Business Travel",
-  "sub_category": "Air Transportation",
-  "all_category": ["Air Transportation", "Meals"]
+  "sub_category": "Hotel Accommodation",
+  "all_category": ["meals", "accommodation", "transportation"],  ← optional, auto-derived
+  "document_ids": ["uuid", "..."]  ← optional (ignored; basket sourced from settlement)
 }
 ```
 
-Note: `all_category` is optional — auto-derived from the `TravelSettlement` if omitted.
+**Requires:** Any authenticated user JWT.
 
-### API Output
+### LangGraph Architecture
+
+```
+START
+  │
+  ▼
+load_context          – Fetch User, Policy, TravelSettlement.receipts[]
+  │                     Build combined_conditions[], policy_sections_text
+  ▼
+agent (LLM)           – First call: inject full HumanMessage with basket JSON
+  │◄──────────────────┐
+  │  tool_calls?       │
+  ├──YES──► tools ─────┘   (loop back to agent after tool execution)
+  │
+  └──NO──► parse_output    – Extract line_items[], totals{}, overall_judgment, etc.
+                │
+                ▼
+          save_reimbursement  – Write Reimbursement row to DB
+                │
+                ▼
+               END
+```
+
+### Agent Tools
+
+| Tool | Signature | Purpose |
+|------|-----------|---------|
+| `get_current_date` | `() → str` | Returns today's date (`YYYY-MM-DD`) — used to check 90-day late submission policy |
+| `search_policy_rag` | `(query: str) → str` | Keyword search over `PolicySection` rows for the active policy — used to look up rank-based limits, per-diem rates, category caps |
+
+Both tools are bound to the LLM via `llm.bind_tools([...])` so the model can call them in a ReAct loop before producing final output.
+
+### Evaluation Logic (enforced via prompt)
+
+The agent checks each receipt for:
+
+| Check | Tag | Result |
+|-------|-----|--------|
+| Receipt older than 90 days | `[LATE_SUBMISSION]` | `REJECTED` |
+| Category not reimbursable under policy | `[INELIGIBLE_CATEGORY]` | `REJECTED` |
+| Amount exceeds rank-based cap | `[OVER_LIMIT]` | `PARTIAL_APPROVE` with deduction |
+| All conditions pass | — | `APPROVED` |
+
+### Output Schema
 
 ```json
 {
   "reim_id": "uuid",
   "settlement_id": "uuid",
-  "judgment": "APPROVE",
+  "judgment": "PARTIAL_APPROVE",
   "status": "REVIEW",
-  "confidence": 0.87,
-  "summary": "All conditions satisfied. Economy class confirmed. Amount within policy limits.",
-  "chain_of_thought": {
-    "Economy class for all employees": { "flag": "PASS", "reason": "AirAsia economy confirmed.", "note": "" },
-    "Prior approval required": { "flag": "PASS", "reason": "Approval form present in supporting docs.", "note": "" }
-  },
-  "amount": {
-    "Air Transportation": {
-      "original_amount": 350.00,
-      "reimbursement": 350.00
+  "confidence": 0.92,
+  "currency": "MYR",
+  "summary": "Settlement partially approved. Accommodation exceeded rank limit...",
+  "line_items": [
+    {
+      "document_id": "uuid",
+      "date": "2026-04-18",
+      "category": "meals",
+      "description": "Client dinner at Sushi Zanmai",
+      "status": "APPROVED",
+      "requested_amount": 150.00,
+      "approved_amount": 150.00,
+      "deduction_amount": 0.00,
+      "audit_notes": []
     },
-    "Meals": {
-      "original_amount": 25.50,
-      "reimbursement": 20.00
+    {
+      "document_id": "uuid",
+      "date": "2025-10-12",
+      "category": "transportation",
+      "description": "Taxi to airport",
+      "status": "REJECTED",
+      "requested_amount": 80.00,
+      "approved_amount": 0.00,
+      "deduction_amount": 80.00,
+      "audit_notes": [
+        {
+          "tag": "[LATE_SUBMISSION]",
+          "message": "Receipt date is over 6 months old. Policy requires submission within 90 days."
+        }
+      ]
+    },
+    {
+      "document_id": "uuid",
+      "date": "2026-04-20",
+      "category": "accommodation",
+      "description": "Hilton Hotel",
+      "status": "PARTIAL_APPROVE",
+      "requested_amount": 1200.00,
+      "approved_amount": 1000.00,
+      "deduction_amount": 200.00,
+      "audit_notes": [
+        {
+          "tag": "[OVER_LIMIT]",
+          "message": "Policy caps accommodation for Rank 2 employees at 500.00 per night."
+        }
+      ]
     }
+  ],
+  "totals": {
+    "total_requested": 1430.00,
+    "total_deduction": 280.00,
+    "net_approved": 1150.00
   },
-  "currency": "MYR"
+  "main_category": "Business Travel",
+  "sub_category": "Hotel Accommodation",
+  "created_at": "2026-04-23T14:20:00Z"
 }
 ```
 
----
+### `overall_judgment` Values
 
-## LangSmith Tracing
+| Value | Meaning |
+|-------|---------|
+| `APPROVE` | All receipts approved, full amount reimbursed |
+| `REJECT` | All receipts rejected |
+| `PARTIAL_APPROVE` | Mix of approved / rejected / partially-approved receipts |
 
-All workflows are automatically traced when these env vars are set in `backend/.env`:
+### `status` Values (on the saved `Reimbursement` row)
 
-```
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_API_KEY=lsv2_pt_...
-LANGCHAIN_PROJECT=um_hackathon
-LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
-```
+| Value | Meaning |
+|-------|---------|
+| `REVIEW` | Default — awaiting HR manual review |
+| `APPROVED` | HR manually approved |
+| `REJECTED` | HR manually rejected |
 
-**View at**: https://smith.langchain.com → project `um_hackathon`
+### DB Tables Written
 
----
-
-## LLM Models Used
-
-| Model | Provider | Used For |
-|-------|----------|----------|
-| `ilmu-glm-5.1` | ILMU API | Policy extraction, compliance evaluation (all-in-one) |
-| `meta-llama/llama-3.2-11b-vision-instruct` | OpenRouter | Receipt image OCR (Vision LLM) |
-| `ilmu-glm-5.1` (text/JSON mode) | ILMU API | PDF receipt text extraction |
+| Table | Description |
+|-------|-------------|
+| `reimbursements` | One row per compliance run: stores `line_items[]`, `totals{}`, `judgment`, `confidence`, `summary` |
+| `travel_settlements` | Back-linked: `reimbursement_id` FK is set on the corresponding settlement row |
 
 ---
 
-## File Storage Layout
+## Shared Infrastructure
 
-```
-backend/storage/
-├── policies/           # HR uploaded policy PDFs
-│   └── *.pdf
-└── documents/          # Employee uploaded receipts
-    └── {user_id}/
-        ├── *.jpg / *.pdf / *.png
-        └── reimbursement_settlement.pdf   ← generated by generate-template
-```
+### LLM Clients (`backend/engine/llm.py`)
+
+| Function | Model type | Used by |
+|----------|-----------|---------|
+| `get_chat_llm()` | Chat/reasoning model | Workflow 1, Workflow 3 |
+| `get_vision_llm()` | Multimodal vision model | Workflow 2 (image receipts) |
+| `get_text_llm()` | Text model | Workflow 2 (PDF receipts) |
+
+### RAG Tool (`backend/engine/tools/rag_tool.py`)
+
+`search_policy_sections(policy_id, session, keywords, limit=8)` — keyword-ILIKE search over `PolicySection.content`. No vector embeddings are used (pgvector is installed but the embedding pipeline was retired). Returns concatenated section excerpts as a plain string.
+
+### Auth & Deps (`backend/api/deps.py`)
+
+- `get_db()` — yields a SQLModel `Session`
+- `get_current_user()` — decodes JWT, returns `User` model
+- `require_hr()` — raises 403 if user role ≠ HR
 
 ---
 
-## Running the Backend
+## Database Schema Quick Reference
 
-```bash
-# Ensure Docker DB is running
-docker compose up -d db
-
-# Start backend
-cd backend && uv run uvicorn main:app --reload --port 8000
-
-# Demo UI:   http://localhost:8000/test/demo
-# DB Viewer: http://localhost:8000/test/
-# Swagger:   http://localhost:8000/docs
+```
+employees          ←→   supporting_documents
+(users/auth)             (receipt files, OCR data)
+                              │
+                    travel_settlements
+                    (WF2 output basket)
+                              │
+                    reimbursements
+                    (WF3 verdict: line_items, totals)
+                              │
+policies           ←→   policy_sections
+(WF1 output)             (RAG search chunks)
 ```
 
-## DB Migrations (run once)
-
-```sql
--- After 2026-04-23 refactor: remove RAG embeddings
-DROP TABLE IF EXISTS supporting_documents_embeddings;
-ALTER TABLE policy_sections DROP COLUMN IF EXISTS embedding;
-
--- After 2026-04-23 Phase 2 refactor: new schema
--- (already applied; kept here for reference)
--- CREATE TABLE travel_settlements (...);
--- ALTER TABLE reimbursements ADD COLUMN settlement_id UUID REFERENCES travel_settlements;
--- ALTER TABLE reimbursements ALTER COLUMN amount TYPE JSONB USING jsonb_build_object('total', amount::text);
--- ALTER TABLE reimbursements ADD COLUMN confidence FLOAT;
--- ALTER TABLE supporting_documents ADD COLUMN settlement_id UUID REFERENCES travel_settlements;
--- ALTER TABLE travel_settlements ADD CONSTRAINT fk_settlement_reim_id FOREIGN KEY (reimbursement_id) REFERENCES reimbursements(reim_id) DEFERRABLE INITIALLY DEFERRED;
-```
+| Table | Key fields |
+|-------|-----------|
+| `employees` | `user_id`, `role` (HR/Employee), `rank`, `department` |
+| `policies` | `policy_id`, `alias`, `reimbursable_category[]`, `mandatory_conditions` (JSON), `status` |
+| `policy_sections` | `section_id`, `policy_id` FK, `content` (text) |
+| `travel_settlements` | `settlement_id`, `receipts[]` (JSONB), `totals{}`, `all_category[]`, `reimbursement_id` FK |
+| `supporting_documents` | `document_id`, `settlement_id` FK, `reim_id` FK, `extracted_data{}` |
+| `reimbursements` | `reim_id`, `settlement_id` FK, `line_items[]` (JSONB), `totals{}`, `judgment`, `confidence`, `status` |

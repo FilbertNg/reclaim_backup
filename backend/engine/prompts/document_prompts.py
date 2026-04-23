@@ -14,7 +14,6 @@ Required fields (use "Not found in Receipt" for any string field not visible; us
     "arrival_date": "YYYY-MM-DD or Not found in Receipt",
     "location": "arrival location or Not found in Receipt",
     "overseas": true, false, or null,
-    "tax_amount": number or 0,
     "receipt_number": "string or Not found in Receipt",
     "receipt_name": "name on receipt or Not found in Receipt",
     "visual_anomalies_detected": true or false,

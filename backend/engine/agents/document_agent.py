@@ -163,7 +163,7 @@ def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = Fal
     if isinstance(confidence, (int, float)) and confidence < 0.7:
         warnings.append(f"Low confidence OCR result: {confidence:.2f}")
 
-    required_fields = ["date", "currency", "total_amount", "receipt_number", "receipt_name"]
+    required_fields = ["currency", "total_amount"]
     for field in required_fields:
         val = extracted_data.get(field)
         if val is None or val == _NFIR or val == 0:
@@ -172,18 +172,12 @@ def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = Fal
             else:
                 warnings.append(f"Missing required field: {field}")
 
-    if is_pdf:
-        warnings.append("Document is a PDF; standard visual anomaly detection bypassed.")
-    elif extracted_data.get("visual_anomalies_detected"):
-        desc = extracted_data.get("anomaly_description", "Unknown anomaly")
+    is_anomaly = extracted_data.get("visual_anomalies_detected")
+    desc = extracted_data.get("anomaly_description")
+    if isinstance(is_anomaly, str):
+        is_anomaly = is_anomaly.lower() in ("true", "1", "yes")
+    if is_anomaly:
         warnings.append(f"Visual anomaly detected: {desc}")
-
-    receipt_name = extracted_data.get("receipt_name") or ""
-    if receipt_name and receipt_name != _NFIR and employee_name:
-        if receipt_name.lower().strip() != employee_name.lower().strip():
-            warnings.append(
-                f"Receipt name '{receipt_name}' does not match employee name '{employee_name}'"
-            )
 
     return warnings
 
@@ -322,7 +316,7 @@ def process_receipts(
         document_ids.append(str(doc.document_id))
 
     user = session.exec(select(User).where(User.user_id == UUID(user_id))).first()
-    user_code = user.user_code if user and user.user_code else user_id[:8] + "…"
+    user_code = user.user_code if user and user.user_code else ""
     department = user.department if user else ""
     rank = user.rank if user else None
 

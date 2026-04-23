@@ -13,7 +13,6 @@ from typing import Annotated, Any, List, Optional
 from uuid import UUID
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.tools import tool
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
@@ -21,43 +20,12 @@ from sqlmodel import Session, select
 from typing_extensions import TypedDict
 
 from core.models import Reimbursement, SupportingDocument, TravelSettlement, User, Policy
-from engine.llm import get_chat_llm
+from engine.llm import get_agent_llm
 from engine.prompts.compliance_prompts import AGENT_EVALUATION_PROMPT
 from engine.tools.rag_tool import search_policy_sections
+from engine.tools.compliance_tools import get_current_date, make_search_policy_rag_tool
 
 logger = logging.getLogger(__name__)
-
-
-# ── LangChain Tools ────────────────────────────────────────────────────────────
-
-@tool
-def get_current_date() -> str:
-    """Returns today's date in YYYY-MM-DD format. Use this to check 90-day late submission policy."""
-    return date.today().isoformat()
-
-
-# search_policy_rag is constructed dynamically per request so it has session access.
-# We create it as a closure inside run_compliance_workflow.
-
-def _make_search_policy_rag_tool(policy_id: str, session: Session):
-    """Factory that binds policy_id and session into the RAG tool closure."""
-
-    @tool
-    def search_policy_rag(query: str) -> str:
-        """
-        Search the HR policy document for specific conditions, rank limits, per-diem rates,
-        accommodation caps, or any other policy rule relevant to this reimbursement claim.
-        The query should describe what you are looking for, e.g. 'accommodation limit rank 2'.
-        """
-        keywords = [kw.strip() for kw in query.split() if kw.strip()]
-        return search_policy_sections(
-            policy_id=policy_id,
-            session=session,
-            keywords=keywords,
-            limit=6,
-        ) or "(no matching policy sections found)"
-
-    return search_policy_rag
 
 
 # ── Graph State ────────────────────────────────────────────────────────────────
@@ -67,7 +35,6 @@ class ComplianceWorkflowState(TypedDict):
     settlement_id: str
     policy_id: str
     main_category: str
-    sub_category: str
     user_id: str
     all_category: List[str]
 
@@ -241,20 +208,28 @@ def parse_output(state: ComplianceWorkflowState) -> dict:
     )
 
     parsed: dict = {}
+    parse_error = None
+    
     try:
         # Try direct JSON parse
         parsed = json.loads(final_content)
-    except Exception:
+    except Exception as e:
+        parse_error = str(e)
         try:
             # Try extracting JSON block from markdown or mixed content
             match = re.search(r"\{.*\}", final_content, re.DOTALL)
             if match:
                 parsed = json.loads(match.group())
-        except Exception:
-            pass
+                parse_error = None
+        except Exception as extract_error:
+            parse_error = f"JSON extraction failed: {str(extract_error)}"
 
     if not parsed:
         # Fallback: mark everything as requiring manual review
+        logger.warning(
+            f"parse_output: Could not parse LLM response. "
+            f"Error: {parse_error}. Content preview: {final_content[:200]}"
+        )
         receipts = state.get("receipts", [])
         line_items = [
             {
@@ -269,7 +244,7 @@ def parse_output(state: ComplianceWorkflowState) -> dict:
                 "audit_notes": [
                     {
                         "tag": "[PARSE_ERROR]",
-                        "message": "Could not parse LLM response. Manual review required.",
+                        "message": f"Could not parse LLM response: {parse_error}",
                     }
                 ],
             }
@@ -307,7 +282,7 @@ def save_reimbursement(state: ComplianceWorkflowState, session: Session) -> dict
         policy_id=UUID(state["policy_id"]),
         settlement_id=settlement_uuid,
         main_category=state["main_category"],
-        sub_category=state["sub_category"],
+        sub_category=state["all_category"],
         employee_department=user.department if user else None,
         employee_rank=user.rank if user else 1,
         currency=state.get("currency", ""),
@@ -345,7 +320,6 @@ def run_compliance_workflow(
     settlement_id: str,
     policy_id: str,
     main_category: str,
-    sub_category: str,
     user_id: str,
     all_category: Optional[List[str]],
     session: Session,
@@ -357,8 +331,8 @@ def run_compliance_workflow(
     Returns a dict with reimbursement_id, judgment, totals, line_items,
     confidence, and summary.
     """
-    tools = [get_current_date, _make_search_policy_rag_tool(policy_id, session)]
-    llm_with_tools = get_chat_llm().bind_tools(tools)
+    tools = [get_current_date, make_search_policy_rag_tool(policy_id, session)]
+    llm_with_tools = get_agent_llm().bind_tools(tools)
     tool_node = ToolNode(tools)
 
     # Partial-bind the session into stateful nodes
@@ -393,7 +367,6 @@ def run_compliance_workflow(
         "settlement_id": settlement_id,
         "policy_id": policy_id,
         "main_category": main_category,
-        "sub_category": sub_category,
         "user_id": user_id,
         "all_category": all_category or [],
         # context fields (populated by load_context)

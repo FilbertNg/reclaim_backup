@@ -6,6 +6,7 @@ import enum
 from sqlmodel import Field, SQLModel, Column, String, Text, Integer, Boolean, DateTime, JSON, Float
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PG_UUID
 from sqlalchemy import ForeignKey
+from pgvector.sqlalchemy import Vector
 
 
 class UserRole(str, enum.Enum):
@@ -46,7 +47,7 @@ class Policy(SQLModel, table=True):
     status: str = Field(sa_column=Column(String))
 
 
-# --- 3. policy_sections (embeddings removed; RAG pipeline retired) ---
+# --- 3. policy_sections ---
 class PolicySection(SQLModel, table=True):
     __tablename__ = "policy_sections"
 
@@ -54,6 +55,7 @@ class PolicySection(SQLModel, table=True):
     policy_id: UUID = Field(foreign_key="policies.policy_id")
     content: str = Field(sa_column=Column(Text))
     metadata_data: dict = Field(default={}, sa_column=Column("metadata", JSONB))
+    embedding: List[float] = Field(sa_column=Column(Vector(1536)))
 
 
 # --- 4. travel_settlement ---
@@ -107,7 +109,7 @@ class Reimbursement(SQLModel, table=True):
     policy_id: Optional[UUID] = Field(default=None, foreign_key="policies.policy_id")
     settlement_id: Optional[UUID] = Field(default=None, foreign_key="travel_settlements.settlement_id")
     main_category: str = Field(sa_column=Column(String))
-    sub_category: str = Field(sa_column=Column(String))
+    sub_category: List[str] = Field(default=[], sa_column=Column(JSONB))
     employee_department: Optional[str] = Field(default=None, sa_column=Column(String))
     employee_rank: int = Field(default=1, sa_column=Column(Integer))
     currency: str = Field(sa_column=Column(String))

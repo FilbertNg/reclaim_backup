@@ -34,16 +34,15 @@ Instructions:
    c. **Amount Limits**: Does the requested amount exceed rank-based caps or nightly limits? Apply PARTIAL_APPROVE with deductions if so, tagging [OVER_LIMIT].
    d. **Mandatory Conditions**: Does the receipt satisfy all applicable mandatory conditions?
    e. **HUMAN EDITS** (if "human_edits" key is present in the receipt JSON):
-      - If change_summary.overall_risk == "HIGH":
-        * Add audit note: [HUMAN_EDIT_HIGH_RISK] with the change description.
-        * Reduce your confidence by 0.15 to 0.25 depending on the number of HIGH risk edits.
-        * Set status to PARTIAL_APPROVE and add [MANUAL_REVIEW_REQUIRED] tag.
-      - If change_summary.overall_risk == "MEDIUM":
-        * Add audit note: [HUMAN_EDIT_MEDIUM] with the change description.
-        * Reduce your confidence by 0.05 to 0.15.
-      - If change_summary.overall_risk == "LOW":
-        * Add audit note: [HUMAN_EDIT] with the change description (informational only).
-        * No confidence reduction.
+      Change risk levels:
+      - HIGH: Material changes to critical fields (date, amount, etc.) where the original OCR data was valid.
+      - MEDIUM: Changes to amount that appear to be OCR decimal/placement errors (e.g., 100.4 -> 10.04, 500 -> 5.00).
+      - LOW: Changes where the original OCR data was empty/null/"Not found in Receipt" (high OCR fault probability).
+      
+      Based on change_summary.overall_risk:
+      - If "HIGH": Add audit note [HUMAN_EDIT_HIGH_RISK] with change description. Reduce confidence by 0.15–0.25. Set status PARTIAL_APPROVE and tag [MANUAL_REVIEW_REQUIRED].
+      - If "MEDIUM": Add audit note [HUMAN_EDIT_MEDIUM] with change description. Reduce confidence by 0.05–0.15.
+      - If "LOW": Add audit note [HUMAN_EDIT] with change description (informational only). No confidence reduction.
 3. Compute totals across all line items.
 4. Determine an overall_judgment: APPROVE (all approved), REJECT (all rejected), or PARTIAL_APPROVE (mixed).
 5. Provide a confidence score (0.0–1.0) and a brief summary.
