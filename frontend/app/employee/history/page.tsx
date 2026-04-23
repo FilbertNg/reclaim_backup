@@ -1,26 +1,62 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Download, History } from "lucide-react";
-import { MOCK_HISTORY_CLAIMS, Claim, ClaimStatus } from "./_components/mockData";
+import { getClaims } from "@/lib/actions/claims";
+import type { ClaimSummary } from "@/lib/api/types";
 import HistoryFilterBar, { FilterStatus } from "./_components/HistoryFilterBar";
 import HistoryList from "./_components/HistoryList";
 import ClaimSidebar from "./_components/ClaimSidebar";
+import { Claim as LegacyClaim } from "./_components/mockData";
 
 export default function HistoryPage() {
   const [currentStatus, setCurrentStatus] = useState<FilterStatus>("All");
-  const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
+  const [selectedClaim, setSelectedClaim] = useState<LegacyClaim | null>(null);
+  const [allClaims, setAllClaims] = useState<LegacyClaim[]>([]);
+
+  // Fetch claims via server action
+  useEffect(() => {
+    getClaims().then((data) => {
+      // Map ClaimSummary to the legacy Claim shape used by sub-components
+      // (preserves existing UI without rewriting HistoryList / ClaimSidebar)
+      const { Plane, UtensilsCrossed, Monitor, FileText, Bus, Car, Hotel } = require("lucide-react");
+      const iconMap: Record<string, typeof Plane> = {
+        Travel: Plane,
+        Meals: UtensilsCrossed,
+        Equipment: Monitor,
+        Office: FileText,
+      };
+      const subIconMap: Record<string, typeof Plane> = {
+        Flight: Plane,
+        Hotel: Hotel,
+        Taxi: Car,
+        Bus: Bus,
+      };
+      const mapped: LegacyClaim[] = data.map((c: ClaimSummary) => ({
+        id: c.id,
+        date: c.date,
+        category: c.category,
+        subCategory: c.subCategory,
+        categoryIcon: subIconMap[c.subCategory] ?? iconMap[c.category] ?? Monitor,
+        merchant: c.merchant,
+        amount: c.amount,
+        amountNumeric: c.amountNumeric,
+        status: c.status,
+      }));
+      setAllClaims(mapped);
+    });
+  }, []);
 
   // Filter claims based on the selected status pill
   const filteredClaims = useMemo(() => {
-    if (currentStatus === "All") return MOCK_HISTORY_CLAIMS;
-    return MOCK_HISTORY_CLAIMS.filter(claim => claim.status === currentStatus);
-  }, [currentStatus]);
+    if (currentStatus === "All") return allClaims;
+    return allClaims.filter(claim => claim.status === currentStatus);
+  }, [currentStatus, allClaims]);
 
   // Aggregate KPI data (Total vs Pending) just for a tiny summary
   const summary = useMemo(() => {
-    const total = MOCK_HISTORY_CLAIMS.filter(c => c.status === "Approved").reduce((acc, c) => acc + c.amountNumeric, 0);
-    const pending = MOCK_HISTORY_CLAIMS.filter(c => c.status === "Pending").reduce((acc, c) => acc + c.amountNumeric, 0);
+    const total = allClaims.filter(c => c.status === "Approved").reduce((acc, c) => acc + c.amountNumeric, 0);
+    const pending = allClaims.filter(c => c.status === "Pending").reduce((acc, c) => acc + c.amountNumeric, 0);
     
     // Formatting currency
     const formatCurrency = (val: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(val);
@@ -29,7 +65,7 @@ export default function HistoryPage() {
       total: formatCurrency(total),
       pending: formatCurrency(pending)
     };
-  }, []);
+  }, [allClaims]);
 
   return (
     <main className="min-h-dvh pb-24 md:pb-12 bg-surface">
@@ -77,7 +113,7 @@ export default function HistoryPage() {
 
       </div>
 
-      {/* ── Claim Sidebar (Overlays above everything except topnav/bottomnav depending on z-index) ── */}
+      {/* ── Claim Sidebar ── */}
       <ClaimSidebar 
         claim={selectedClaim} 
         onClose={() => setSelectedClaim(null)} 

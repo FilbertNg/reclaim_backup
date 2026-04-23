@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
 export function proxy(request: NextRequest) {
-  const token = request.cookies.get('access_token')?.value || request.headers.get('Authorization')?.split(' ')[1];
+  const token = request.cookies.get('session')?.value;
   const { pathname } = request.nextUrl;
 
   // Allow access to login page and API routes without authentication

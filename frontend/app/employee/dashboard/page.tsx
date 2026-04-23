@@ -1,16 +1,25 @@
 "use client";
 
-import { useAuth } from "@/context/AuthContext";
+import { useEffect, useState } from "react";
 import { History, CheckCircle2, CreditCard } from "lucide-react";
+import { getDashboardStats } from "@/lib/actions/dashboard";
+import { useAuth } from "@/context/AuthContext";
+import type { DashboardStats } from "@/lib/api/types";
 
 import StatCard          from "./_components/StatCard";
 import RecentClaimsTable from "./_components/RecentClaimsTable";
 
 export default function EmployeeDashboardPage() {
   const { user } = useAuth();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
 
   // Show only the first name in the greeting
   const firstName = user?.name?.split(" ")[0] ?? "there";
+
+  // Fetch dashboard stats via server action
+  useEffect(() => {
+    getDashboardStats().then(setStats);
+  }, []);
 
   return (
     /*
@@ -48,33 +57,28 @@ export default function EmployeeDashboardPage() {
       </section>
 
       {/* ── 2. KPI Bento Grid ─────────────────── */}
-      {/*
-       * Grid:
-       *   - 1 column on mobile (stacked, full-width cards are easy to read)
-       *   - 3 columns on md+ (side-by-side bento layout matching boilerplate)
-       */}
       <section
         aria-label="Key metrics"
         className="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-6 mb-6 md:mb-10"
       >
         <StatCard
           label="Awaiting Review"
-          value="$1,240.50"
-          subtext="4 claims processing"
+          value={stats?.awaitingReview.amount ?? "$—"}
+          subtext={`${stats?.awaitingReview.count ?? 0} claims processing`}
           icon={History}
           variant="pending"
         />
         <StatCard
           label="Reimbursed This Month"
-          value="$3,850.00"
-          subtext="12 claims settled"
+          value={stats?.reimbursedThisMonth.amount ?? "$—"}
+          subtext={`${stats?.reimbursedThisMonth.count ?? 0} claims settled`}
           icon={CheckCircle2}
           variant="approved"
         />
         <StatCard
           label="Already Paid"
-          value="$450.00"
-          subtext="2 claims paid"
+          value={stats?.alreadyPaid.amount ?? "$—"}
+          subtext={`${stats?.alreadyPaid.count ?? 0} claims paid`}
           icon={CreditCard}
           variant="paid"
         />

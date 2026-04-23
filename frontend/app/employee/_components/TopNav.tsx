@@ -3,7 +3,17 @@
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import { getNotifications, markAllNotificationsRead } from "@/lib/actions/notifications";
+import type { Notification } from "@/lib/api/types";
 import { Search, Upload, Bell, HelpCircle, CheckCircle2, AlertCircle, Info, FileText } from "lucide-react";
+
+/* ─── Icon map for notification types ────────────────── */
+const NOTIF_ICON_MAP: Record<Notification["type"], { icon: typeof CheckCircle2; bg: string; text: string }> = {
+  success: { icon: CheckCircle2, bg: "bg-primary/10", text: "text-primary" },
+  warning: { icon: AlertCircle, bg: "bg-tertiary/20", text: "text-tertiary" },
+  error:   { icon: AlertCircle, bg: "bg-error/10", text: "text-error" },
+  info:    { icon: Info, bg: "bg-surface-variant", text: "text-on-surface-variant" },
+};
 
 export default function TopNav() {
   const { user } = useAuth();
@@ -12,9 +22,15 @@ export default function TopNav() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   // Click outside ref for notifications
   const notifRef = useRef<HTMLDivElement>(null);
+
+  // Fetch notifications via server action
+  useEffect(() => {
+    getNotifications().then(setNotifications);
+  }, []);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -25,6 +41,14 @@ export default function TopNav() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
+
+  async function handleMarkAllRead() {
+    await markAllNotificationsRead();
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setShowNotifications(false);
+  }
 
   return (
     <header
@@ -80,7 +104,7 @@ export default function TopNav() {
                 </Link>
                 <div className="p-3 bg-surface-container-lowest border-t border-outline-variant/10 text-center">
                   <Link href="/employee/history" className="text-xs font-bold text-primary hover:underline" onClick={() => setSearchQuery("")}>
-                    See all results for "{searchQuery}"
+                    See all results for &quot;{searchQuery}&quot;
                   </Link>
                 </div>
               </div>
@@ -111,7 +135,9 @@ export default function TopNav() {
               }`}
             >
               <Bell className="w-5 h-5" strokeWidth={1.75} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error border-2 border-surface pointer-events-none" />
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-error border-2 border-surface pointer-events-none" />
+              )}
             </button>
 
             {/* Notification Dropdown */}
@@ -119,44 +145,39 @@ export default function TopNav() {
               <div className="absolute right-0 mt-2 w-80 bg-surface border border-outline-variant/20 rounded-2xl shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 z-70">
                 <div className="flex items-center justify-between p-4 border-b border-outline-variant/10 bg-surface-container-lowest">
                   <h3 className="font-headline font-bold text-sm text-on-surface">Notifications</h3>
-                  <button className="text-[10px] font-bold text-primary hover:underline uppercase tracking-wider" onClick={() => setShowNotifications(false)}>
+                  <button className="text-[10px] font-bold text-primary hover:underline uppercase tracking-wider" onClick={handleMarkAllRead}>
                     Mark all read
                   </button>
                 </div>
                 
                 <div className="max-h-72 overflow-y-auto">
-                  {/* Notification 1 */}
-                  <div className="flex gap-3 p-4 border-b border-outline-variant/5 hover:bg-surface-container-lowest transition-colors cursor-pointer" onClick={() => setShowNotifications(false)}>
-                    <div className="p-2 h-fit bg-primary/10 text-primary rounded-full shrink-0"><CheckCircle2 className="w-4 h-4" /></div>
-                    <div>
-                      <p className="text-sm font-semibold text-on-surface">Claim #RC-8891 Approved</p>
-                      <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">Your claim for $124.50 has been approved and moved to payouts.</p>
-                      <span className="text-[10px] font-bold text-on-surface-variant/50 mt-1 block">2 hours ago</span>
-                    </div>
-                  </div>
-
-                  {/* Notification 2 */}
-                  <div className="flex gap-3 p-4 border-b border-outline-variant/5 bg-tertiary/5 hover:bg-tertiary/10 transition-colors cursor-pointer" onClick={() => setShowNotifications(false)}>
-                    <div className="relative">
-                      <div className="p-2 h-fit bg-tertiary/20 text-tertiary rounded-full shrink-0"><AlertCircle className="w-4 h-4" /></div>
-                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-error rounded-full border-2 border-surface" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-semibold text-on-surface">Action Required: Claim #RC-8885</p>
-                      <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">Please provide an itemized receipt for the laptop purchase.</p>
-                      <span className="text-[10px] font-bold text-on-surface-variant/50 mt-1 block">1 day ago</span>
-                    </div>
-                  </div>
-
-                  {/* Notification 3 */}
-                  <div className="flex gap-3 p-4 hover:bg-surface-container-lowest transition-colors cursor-pointer" onClick={() => setShowNotifications(false)}>
-                    <div className="p-2 h-fit bg-surface-variant text-on-surface-variant rounded-full shrink-0"><Info className="w-4 h-4" /></div>
-                    <div>
-                      <p className="text-sm font-semibold text-on-surface">System Maintenance</p>
-                      <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">Reclaim will undergo scheduled maintenance this Friday at 2AM EST.</p>
-                      <span className="text-[10px] font-bold text-on-surface-variant/50 mt-1 block">2 days ago</span>
-                    </div>
-                  </div>
+                  {notifications.map((notif) => {
+                    const iconConfig = NOTIF_ICON_MAP[notif.type];
+                    const IconComponent = iconConfig.icon;
+                    return (
+                      <div
+                        key={notif.id}
+                        className={`flex gap-3 p-4 border-b border-outline-variant/5 hover:bg-surface-container-lowest transition-colors cursor-pointer ${
+                          !notif.isRead ? "bg-tertiary/5 hover:bg-tertiary/10" : ""
+                        }`}
+                        onClick={() => setShowNotifications(false)}
+                      >
+                        <div className="relative">
+                          <div className={`p-2 h-fit ${iconConfig.bg} ${iconConfig.text} rounded-full shrink-0`}>
+                            <IconComponent className="w-4 h-4" />
+                          </div>
+                          {!notif.isRead && (
+                            <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-error rounded-full border-2 border-surface" />
+                          )}
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-on-surface">{notif.title}</p>
+                          <p className="text-xs text-on-surface-variant mt-0.5 leading-relaxed">{notif.message}</p>
+                          <span className="text-[10px] font-bold text-on-surface-variant/50 mt-1 block">{notif.timestamp}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
 
                 <div className="p-2 border-t border-outline-variant/10 text-center bg-surface-container-lowest">
