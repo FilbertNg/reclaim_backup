@@ -389,10 +389,13 @@
             </div>
           </div>
 
-          <!-- Generate Settlement PDF -->
+          <!-- Generate Settlement HTML -->
           <div id="wf2-pdf-section" style="display:none;margin-top:16px;padding-top:16px;border-top:1px solid var(--border);">
-            <div class="section-label">Settlement PDF</div>
-            <button class="btn btn-green" onclick="generateSettlementPDF()" id="btn-gen-pdf">📄 Generate Business Travel Settlement →</button>
+            <div class="section-label">Settlement Document</div>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="btn btn-green" onclick="generateSettlementPDF()" id="btn-gen-pdf">📄 Generate &amp; View Settlement →</button>
+              <button class="btn btn-outline btn-sm" onclick="viewSavedSettlement()" id="btn-view-settlement" style="display:none;">🔗 View Saved Settlement</button>
+            </div>
             <div id="wf2-pdf-result" style="display:none;margin-top:12px;">
               <div class="result-field"><label>Settlement</label><div class="value" id="wf2-pdf-path" style="color:var(--green);font-family:Inter,sans-serif;font-size:12px;"></div></div>
             </div>
@@ -851,7 +854,11 @@ async function generateSettlementPDF() {
   const btn = document.getElementById('btn-gen-pdf');
   btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Rendering settlement…';
   try {
-    const fd = new FormData(); docIds.forEach(id => fd.append('document_ids', id));
+    const fd = new FormData();
+    docIds.forEach(id => fd.append('document_ids', id));
+    // Pass settlement_id so employee context is pulled from DB and HTML is saved
+    if (window._lastSettlementId) fd.append('settlement_id', window._lastSettlementId);
+
     const res = await api('/api/v1/documents/generate-template', { method:'POST', body:fd });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: 'Unknown error' }));
@@ -861,13 +868,26 @@ async function generateSettlementPDF() {
     const blob = new Blob([html], { type: 'text/html' });
     const url = URL.createObjectURL(blob);
     window.open(url, '_blank');
-    // Revoke after a delay to allow the new tab to load
     setTimeout(() => URL.revokeObjectURL(url), 10000);
+
     document.getElementById('wf2-pdf-result').style.display='block';
-    document.getElementById('wf2-pdf-path').textContent = 'Opened in new tab — use browser Print (Ctrl+P) to save as PDF';
-    toast('Settlement rendered! Use browser Print to save as PDF.','success');
+    document.getElementById('wf2-pdf-path').textContent =
+      'Opened in new tab — use browser Print (Ctrl+P) to save as PDF. Settlement saved to DB.';
+
+    // Show the persistent "View Saved Settlement" button if we have a settlement_id
+    if (window._lastSettlementId) {
+      document.getElementById('btn-view-settlement').style.display='inline-flex';
+    }
+    toast('Settlement rendered and saved!','success');
   } catch(e) { toast('Render failed: '+e.message,'error'); }
-  finally { btn.disabled=false; btn.innerHTML='📄 Generate Business Travel Settlement →'; }
+  finally { btn.disabled=false; btn.innerHTML='📄 Generate &amp; View Settlement →'; }
+}
+
+function viewSavedSettlement() {
+  const sid = window._lastSettlementId;
+  if (!sid) { toast('No settlement available','error'); return; }
+  // Opens the GET endpoint — always re-renders with latest human edits applied
+  window.open(`/api/v1/documents/settlement/${sid}/template`, '_blank');
 }
 
 async function loadMyDocuments() {
