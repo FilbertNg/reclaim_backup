@@ -10,6 +10,7 @@ from sqlmodel import Session, select
 from api import deps
 from core.models import User, SupportingDocument
 from engine.agents.document_agent import process_receipts
+from engine.tools.change_detector import detect_changes, EDITABLE_FIELDS
 from engine.tools.generate_reimbursement_template import generate_reimbursement_template
 
 router = APIRouter()
@@ -171,4 +172,57 @@ async def generate_template(
     return {
         "pdf_path": f"/storage/documents/{current_user.user_id}/reimbursement_settlement.pdf",
         "aggregated_results": aggregated,
+    }
+
+
+@router.post("/{document_id}/edits")
+def edit_receipt_fields(
+    document_id: str,
+    edits: dict,
+    db: Session = Depends(deps.get_db),
+    current_user: User = Depends(deps.get_current_user),
+) -> dict:
+    """
+    User edits receipt fields post-OCR. Original extracted_data is preserved.
+    Edits are stored in editable_fields; change severity is pre-computed.
+    """
+    try:
+        doc_uuid = UUID(document_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid document_id: {document_id}")
+
+    doc = db.get(SupportingDocument, doc_uuid)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    if str(doc.user_id) != str(current_user.user_id):
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    invalid_fields = set(edits.keys()) - EDITABLE_FIELDS
+    if invalid_fields:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot edit fields: {sorted(invalid_fields)}. Allowed: {sorted(EDITABLE_FIELDS)}",
+        )
+
+    change_summary = detect_changes(doc.extracted_data or {}, edits)
+
+    if not change_summary["has_changes"]:
+        raise HTTPException(
+            status_code=400,
+            detail="No actual changes detected; edits match original values",
+        )
+
+    doc.editable_fields = edits
+    doc.human_edited = True
+    doc.change_summary = change_summary
+
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+
+    return {
+        "document_id": str(doc.document_id),
+        "human_edited": doc.human_edited,
+        "change_summary": doc.change_summary,
     }
