@@ -12,7 +12,7 @@
 import { cookies } from "next/headers";
 import type { ApiResult } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /** Configurable API version prefix. Change this to update all endpoints at once. */
 export const API_PREFIX = process.env.API_PREFIX || "/api/v1";

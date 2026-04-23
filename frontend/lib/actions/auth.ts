@@ -9,7 +9,7 @@ import { cookies } from "next/headers";
 import { API_PREFIX } from "@/lib/api/client";
 import type { User } from "@/lib/api/types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 /**
  * Authenticate with email + password.
