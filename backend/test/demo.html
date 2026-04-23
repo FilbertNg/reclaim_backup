@@ -97,8 +97,19 @@
 
     .judgment-badge { display: inline-flex; align-items: center; gap: 6px; padding: 5px 14px; border-radius: 20px; font-size: 13px; font-weight: 700; letter-spacing: 0.5px; }
     .judgment-badge.APPROVE { background: rgba(34,211,165,0.15); color: var(--green); border: 1px solid rgba(34,211,165,0.3); }
+    .judgment-badge.REJECT { background: rgba(240,106,106,0.15); color: var(--red); border: 1px solid rgba(240,106,106,0.3); }
     .judgment-badge.FLAG { background: rgba(240,106,106,0.15); color: var(--red); border: 1px solid rgba(240,106,106,0.3); }
+    .judgment-badge.PARTIAL_APPROVE { background: rgba(247,201,72,0.15); color: var(--yellow); border: 1px solid rgba(247,201,72,0.3); }
     .judgment-badge.REVIEW { background: rgba(247,201,72,0.15); color: var(--yellow); border: 1px solid rgba(247,201,72,0.3); }
+    .li-status { display:inline-flex;align-items:center;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:0.4px; }
+    .li-status.APPROVED { background:rgba(34,211,165,0.15);color:var(--green); }
+    .li-status.REJECTED { background:rgba(240,106,106,0.15);color:var(--red); }
+    .li-status.PARTIAL_APPROVE { background:rgba(247,201,72,0.15);color:var(--yellow); }
+    .audit-tag { display:inline-block;background:rgba(247,201,72,0.1);border:1px solid rgba(247,201,72,0.25);color:var(--yellow);padding:1px 6px;border-radius:4px;font-size:10px;margin-right:4px; }
+    .wf3-totals-row { display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px; }
+    .wf3-tot-box { background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px; }
+    .wf3-tot-box .lbl { font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px; }
+    .wf3-tot-box .val { font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;margin-top:2px; }
 
     .json-block { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--blue); overflow-x: auto; max-height: 250px; overflow-y: auto; white-space: pre-wrap; word-break: break-word; }
     .warning-chip { display: inline-flex; align-items: center; gap: 5px; background: rgba(247,201,72,0.1); border: 1px solid rgba(247,201,72,0.25); color: var(--yellow); padding: 3px 10px; border-radius: 20px; font-size: 11px; margin: 2px 3px; }
@@ -167,6 +178,33 @@
       .wf-input { border-right: none; border-bottom: 1px solid var(--border); }
       .form-row { grid-template-columns: 1fr; }
     }
+
+    /* ── Receipt Edits ── */
+    .editable-fields-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .risk-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .risk-badge.NONE, .risk-badge.LOW { background: rgba(34,211,165,0.15); color: var(--green); border: 1px solid rgba(34,211,165,0.3); }
+    .risk-badge.MEDIUM { background: rgba(247,201,72,0.15); color: var(--yellow); border: 1px solid rgba(247,201,72,0.3); }
+    .risk-badge.HIGH { background: rgba(240,106,106,0.15); color: var(--red); border: 1px solid rgba(240,106,106,0.3); }
+    .change-row { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 14px; margin-bottom: 8px; }
+    .change-row .field-name { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+    .change-row .change-desc { font-size: 12px; color: var(--text); }
+    .change-row .orig-val { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--muted); text-decoration: line-through; }
+    .change-row .new-val  { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--green); }
+
+    /* ── Detail Modal (DB viewer row click) ── */
+    #detail-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 1000; align-items: flex-start; justify-content: center; padding: 40px 20px; overflow-y: auto; }
+    #detail-modal.open { display: flex; }
+    .detail-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); width: 100%; max-width: 760px; max-height: 85vh; display: flex; flex-direction: column; }
+    .detail-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .detail-panel-header h3 { font-size: 14px; font-weight: 600; }
+    .detail-panel-body { padding: 20px; overflow-y: auto; flex: 1; }
+    .detail-field { margin-bottom: 14px; }
+    .detail-field .df-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .detail-field .df-val { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--text); word-break: break-all; }
+    .detail-field .df-json { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; font-size: 11px; color: var(--blue); white-space: pre-wrap; word-break: break-word; max-height: 300px; overflow-y: auto; }
+    .detail-field .df-null { color: var(--muted); font-style: italic; }
+    .btn-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+    .btn-close:hover { color: var(--text); background: var(--surface2); }
   </style>
 </head>
 <body>
@@ -219,6 +257,7 @@
     <button class="nav-tab active" onclick="switchTab('wf1')">📋 Workflow 1 <span style="font-size:11px;color:var(--muted)">Policy Upload</span></button>
     <button class="nav-tab" onclick="switchTab('wf2')">📄 Workflow 2 <span style="font-size:11px;color:var(--muted)">Receipt OCR</span></button>
     <button class="nav-tab" onclick="switchTab('wf3')">⚖️ Workflow 3 <span style="font-size:11px;color:var(--muted)">Compliance</span></button>
+    <button class="nav-tab" onclick="switchTab('edits')">✏️ Receipt Edits <span style="font-size:11px;color:var(--muted)">Edit Fields</span></button>
     <button class="nav-tab" onclick="switchTab('db'); loadDbTab('employees')">🗄️ DB Viewer</button>
   </div>
 
@@ -423,18 +462,99 @@
           <div class="section-label">Output</div>
           <div class="output-placeholder" id="wf3-placeholder"><div class="arrow">→</div>Fill in details and click <em>Analyze</em><br><span style="font-size:11px;color:var(--muted);">(may take 30–90 seconds)</span></div>
           <div class="result-block" id="wf3-result">
-            <div class="result-field" style="margin-bottom:16px;"><label>Judgment</label><div id="wf3-judgment-badge" style="margin-top:6px;"></div></div>
+            <div class="result-field" style="margin-bottom:16px;"><label>Overall Judgment</label><div id="wf3-judgment-badge" style="margin-top:6px;"></div></div>
             <div class="result-field"><label>Confidence</label><div id="wf3-confidence-bar" style="margin-top:4px;"></div></div>
             <div class="result-field"><label>Reimbursement ID</label><div class="value"><span id="wf3-reim-id-val">—</span><button class="copy-btn" onclick="copyText('wf3-reim-id-val')">⎘</button></div></div>
             <div class="result-field"><label>Summary</label><div style="font-size:12px;color:var(--text);line-height:1.6;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);" id="wf3-summary-text"></div></div>
-            <div class="result-field" id="wf3-amount-section" style="display:none;">
-              <label>Approved Amount Breakdown</label>
-              <div id="wf3-amount-table" style="margin-top:6px;"></div>
+            <div class="result-field" id="wf3-totals-section" style="display:none;">
+              <label>Settlement Totals</label>
+              <div class="wf3-totals-row" id="wf3-totals-grid"></div>
             </div>
             <div class="result-field">
-              <label>Chain of Thought</label>
-              <div class="collapsible-header" onclick="toggleCollapse('wf3-cot-body', this)"><span style="font-size:12px;color:var(--muted)">Click to expand condition-by-condition analysis</span><span class="chevron">▼</span></div>
-              <div class="collapsible-body collapsed" id="wf3-cot-body"><div id="wf3-cot-cards"></div></div>
+              <label>Receipt Line Items</label>
+              <div class="collapsible-header" onclick="toggleCollapse('wf3-li-body', this)"><span style="font-size:12px;color:var(--muted)">Click to expand per-receipt evaluation</span><span class="chevron">▼</span></div>
+              <div class="collapsible-body collapsed" id="wf3-li-body"><div id="wf3-li-cards"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ Receipt Edits ══ -->
+  <div class="tab-content" id="tab-edits">
+    <div class="info-box">
+      <strong>Receipt Field Edits</strong><br>
+      Select a previously uploaded receipt and correct any fields the OCR extracted incorrectly.
+      Original data is <strong>preserved</strong> — only the edited values are stored alongside it.
+      The change severity (LOW / MEDIUM / HIGH) is computed automatically and fed to the Compliance Agent.
+    </div>
+
+    <div class="workflow-card">
+      <div class="workflow-header">
+        <div class="wf-icon purple">✏️</div>
+        <div><h3>Edit Receipt Fields</h3><p>POST /api/v1/documents/{id}/edits — patch editable fields post-OCR</p></div>
+      </div>
+      <div class="workflow-body">
+        <div class="wf-input">
+          <div class="section-label">Input</div>
+
+          <div class="form-group">
+            <label>Receipt Document * <button class="btn-ghost btn-sm" onclick="loadEditsDocPicker()" style="margin-left:8px;font-size:11px;">↻ Load</button></label>
+            <select id="edits-doc-select" style="font-family:Inter;">
+              <option value="">— click Load to fetch your documents —</option>
+            </select>
+          </div>
+
+          <!-- OCR original preview -->
+          <div id="edits-original-preview" style="display:none;margin-bottom:14px;">
+            <div class="section-label" style="margin-bottom:8px;">Original OCR Data</div>
+            <pre class="json-block" id="edits-original-json" style="max-height:160px;"></pre>
+          </div>
+
+          <div class="section-label">Fields to Edit <span style="font-size:10px;font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;">(leave blank to skip)</span></div>
+          <div class="editable-fields-grid">
+            <div class="form-group"><label>Merchant Name <span style="color:var(--green);font-size:9px;">LOW</span></label><input type="text" id="ef-merchant_name" placeholder="e.g. Marriott Hotel KL" /></div>
+            <div class="form-group"><label>Date <span style="color:var(--red);font-size:9px;">HIGH</span></label><input type="text" id="ef-date" placeholder="YYYY-MM-DD" /></div>
+            <div class="form-group"><label>Time <span style="color:var(--green);font-size:9px;">LOW</span></label><input type="text" id="ef-time" placeholder="HH:MM" /></div>
+            <div class="form-group"><label>Currency <span style="color:var(--yellow);font-size:9px;">MEDIUM</span></label><input type="text" id="ef-currency" placeholder="MYR / USD …" /></div>
+            <div class="form-group"><label>Total Amount <span style="color:var(--red);font-size:9px;">HIGH</span></label><input type="number" id="ef-total_amount" placeholder="0.00" step="0.01" /></div>
+            <div class="form-group"><label>Destination <span style="color:var(--yellow);font-size:9px;">MEDIUM</span></label><input type="text" id="ef-destination" placeholder="e.g. Kuala Lumpur" /></div>
+            <div class="form-group"><label>Departure Date <span style="color:var(--red);font-size:9px;">HIGH</span></label><input type="text" id="ef-departure_date" placeholder="YYYY-MM-DD" /></div>
+            <div class="form-group"><label>Arrival Date <span style="color:var(--red);font-size:9px;">HIGH</span></label><input type="text" id="ef-arrival_date" placeholder="YYYY-MM-DD" /></div>
+            <div class="form-group"><label>Location <span style="color:var(--green);font-size:9px;">LOW</span></label><input type="text" id="ef-location" placeholder="e.g. Level 3, Pavilion" /></div>
+            <div class="form-group"><label>Overseas <span style="color:var(--yellow);font-size:9px;">MEDIUM</span></label>
+              <select id="ef-overseas"><option value="">— unchanged —</option><option value="true">true</option><option value="false">false</option></select>
+            </div>
+          </div>
+
+          <button class="btn btn-primary" onclick="submitReceiptEdits()" id="btn-edits" style="margin-top:8px;">Submit Edits →</button>
+        </div>
+
+        <div class="wf-output">
+          <div class="section-label">Result</div>
+          <div class="output-placeholder" id="edits-placeholder"><div class="arrow">→</div>Select a document, fill in corrections, and click <em>Submit Edits</em></div>
+          <div class="result-block" id="edits-result">
+            <div class="result-field" style="margin-bottom:16px;">
+              <label>Overall Risk</label>
+              <div id="edits-risk-badge" style="margin-top:6px;"></div>
+            </div>
+            <div class="result-field">
+              <label>Document ID</label>
+              <div class="value"><span id="edits-doc-id-val">—</span><button class="copy-btn" onclick="copyText('edits-doc-id-val')">⎘</button></div>
+            </div>
+            <div class="result-field">
+              <label>Change Count</label>
+              <div class="value" id="edits-change-count">—</div>
+            </div>
+            <div class="result-field">
+              <label>Changes by Field</label>
+              <div id="edits-changes-list"></div>
+            </div>
+            <div class="result-field">
+              <label>Full change_summary (JSON)</label>
+              <div class="collapsible-header" onclick="toggleCollapse('edits-json-body', this)"><span style="font-size:12px;color:var(--muted)">Click to expand</span><span class="chevron">▼</span></div>
+              <div class="collapsible-body collapsed" id="edits-json-body"><pre class="json-block" id="edits-summary-json"></pre></div>
             </div>
           </div>
         </div>
@@ -460,6 +580,18 @@
   </div>
 
 </div><!-- /container -->
+
+<!-- Detail Modal (DB row click) -->
+<div id="detail-modal" onclick="closeDetailModal(event)">
+  <div class="detail-panel">
+    <div class="detail-panel-header">
+      <h3 id="detail-modal-title">Row Detail</h3>
+      <button class="btn-close" onclick="document.getElementById('detail-modal').classList.remove('open')">✕</button>
+    </div>
+    <div class="detail-panel-body" id="detail-modal-body"></div>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -543,11 +675,13 @@ function logout() {
 }
 
 // ── Nav ────────────────────────────────────────────────────────────────────
+const TAB_NAMES = ['wf1','wf2','wf3','edits','db'];
 function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-'+name).classList.add('active');
-  document.querySelectorAll('.nav-tab')[['wf1','wf2','wf3','db'].indexOf(name)].classList.add('active');
+  const idx = TAB_NAMES.indexOf(name);
+  if (idx >= 0) document.querySelectorAll('.nav-tab')[idx].classList.add('active');
 }
 
 // ── Workflow 1 ─────────────────────────────────────────────────────────────
@@ -778,31 +912,29 @@ async function loadPolicies() {
 }
 async function runWorkflow3() {
   if (!token) { toast('Please login first','error'); return; }
-  const selectedDocs = [...document.querySelectorAll('#doc-picker input[type="checkbox"]:checked')].map(c=>c.value);
-  const policyId    = document.getElementById('wf3-policy-select').value;
+  const policyId     = document.getElementById('wf3-policy-select').value;
   const settlementId = document.getElementById('wf3-settlement-id').value.trim();
-  const mainCat     = document.getElementById('wf3-main-cat').value.trim();
-  const subCat      = document.getElementById('wf3-sub-cat').value.trim();
-  if (!selectedDocs.length) { toast('Select at least one document','error'); return; }
+  const mainCat      = document.getElementById('wf3-main-cat').value.trim();
+  const subCat       = document.getElementById('wf3-sub-cat').value.trim();
   if (!settlementId) { toast('Settlement ID is required (run Workflow 2 first)','error'); return; }
-  if (!policyId) { toast('Select a policy','error'); return; }
-  if (!mainCat)  { toast('Enter main category','error'); return; }
-  if (!subCat)   { toast('Enter sub category','error'); return; }
+  if (!policyId)     { toast('Select a policy','error'); return; }
+  if (!mainCat)      { toast('Enter main category','error'); return; }
+  if (!subCat)       { toast('Enter sub category','error'); return; }
 
   const btn = document.getElementById('btn-wf3');
-  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Analyzing (30–90s)…';
+  btn.disabled=true; btn.innerHTML='<span class="spinner"></span> Analyzing basket (30–120s)…';
   document.getElementById('wf3-steps').classList.add('show');
   document.getElementById('wf3-result').classList.remove('show');
   document.getElementById('wf3-placeholder').style.display='flex';
 
   setStep('wf3',1,'active');
   setTimeout(() => { setStep('wf3',1,'done'); setStep('wf3',2,'active'); }, 1000);
-  setTimeout(() => { setStep('wf3',2,'done'); setStep('wf3',3,'active'); }, 30000);
+  setTimeout(() => { setStep('wf3',2,'done'); setStep('wf3',3,'active'); }, 40000);
 
   try {
     const res = await api('/api/v1/reimbursements/analyze', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ document_ids:selectedDocs, settlement_id:settlementId, policy_id:policyId, main_category:mainCat, sub_category:subCat }),
+      body:JSON.stringify({ settlement_id:settlementId, policy_id:policyId, main_category:mainCat, sub_category:subCat }),
     });
     const data = await res.json(); if (!res.ok) throw new Error(data.detail||JSON.stringify(data));
     for (let i=1;i<=3;i++) setStep('wf3',i,'done');
@@ -813,10 +945,10 @@ async function runWorkflow3() {
     document.getElementById('wf3-summary-text').textContent = data.summary||'—';
 
     // Judgment badge
-    const j = (data.judgment||'MANUAL REVIEW').toUpperCase();
-    const badgeClass = j==='APPROVE'?'APPROVE':j==='FLAG'?'FLAG':'REVIEW';
-    const emoji = j==='APPROVE'?'✅':j==='FLAG'?'🚩':'⚠️';
-    document.getElementById('wf3-judgment-badge').innerHTML = `<span class="judgment-badge ${badgeClass}">${emoji} ${j}</span>`;
+    const j = (data.judgment||'MANUAL REVIEW').toUpperCase().replace(' ','_');
+    const badgeClass = j==='APPROVE'?'APPROVE':j==='REJECT'?'REJECT':j==='PARTIAL_APPROVE'?'PARTIAL_APPROVE':'REVIEW';
+    const emoji = j==='APPROVE'?'✅':j==='REJECT'?'🚫':j==='PARTIAL_APPROVE'?'⚡':'⚠️';
+    document.getElementById('wf3-judgment-badge').innerHTML = `<span class="judgment-badge ${badgeClass}">${emoji} ${j.replace('_',' ')}</span>`;
 
     // Confidence bar
     const conf = typeof data.confidence === 'number' ? data.confidence : 0;
@@ -830,41 +962,53 @@ async function runWorkflow3() {
         <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${confColor};min-width:36px;">${confPct}%</span>
       </div>`;
 
-    // Amount breakdown table
-    const amtObj = data.amount || {};
-    const amtEntries = Object.entries(amtObj);
-    const amtSec = document.getElementById('wf3-amount-section');
-    if (amtEntries.length) {
-      amtSec.style.display='block';
-      const cur = data.currency || 'MYR';
-      const rows = amtEntries.map(([cat, v]) => `
-        <tr>
-          <td style="font-family:Inter;">${cat}</td>
-          <td>${cur} ${Number(v.original_amount||0).toFixed(2)}</td>
-          <td style="color:var(--green);font-weight:600;">${cur} ${Number(v.reimbursement||0).toFixed(2)}</td>
-          <td style="color:var(--muted);">${v.original_amount ? Math.round((v.reimbursement||0)/(v.original_amount)*100) : 0}%</td>
-        </tr>`).join('');
-      document.getElementById('wf3-amount-table').innerHTML = `
-        <table style="width:100%;font-size:12px;border-collapse:collapse;">
-          <thead><tr><th style="text-align:left;padding:6px 8px;">Category</th><th style="padding:6px 8px;">Original</th><th style="padding:6px 8px;">Approved</th><th style="padding:6px 8px;">Rate</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`;
-    } else { amtSec.style.display='none'; }
+    // Totals grid
+    const totals = data.totals || {};
+    const cur = data.currency || 'MYR';
+    const totSec = document.getElementById('wf3-totals-section');
+    if (totals.total_requested !== undefined) {
+      totSec.style.display='block';
+      const netColor = (totals.net_approved||0) >= (totals.total_requested||0) ? 'var(--green)' : 'var(--yellow)';
+      document.getElementById('wf3-totals-grid').innerHTML = [
+        ['Total Requested', totals.total_requested, 'var(--text)'],
+        ['Total Deduction', totals.total_deduction, 'var(--red)'],
+        ['Net Approved',    totals.net_approved,    netColor],
+      ].map(([lbl, val, color]) => `
+        <div class="wf3-tot-box">
+          <div class="lbl">${lbl}</div>
+          <div class="val" style="color:${color};">${cur} ${Number(val||0).toFixed(2)}</div>
+        </div>`).join('');
+    } else { totSec.style.display='none'; }
 
-    // Chain of thought
-    const cot = data.chain_of_thought||{};
-    const cotEl = document.getElementById('wf3-cot-cards'); cotEl.innerHTML='';
-    Object.entries(cot).forEach(([key,val]) => {
-      const flag = (val.flag||'').toUpperCase();
-      const color = flag==='PASS'||flag==='APPROVE'?'var(--green)':flag==='FAIL'||flag==='FLAG'?'var(--red)':'var(--yellow)';
-      cotEl.innerHTML += `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-          <strong style="font-size:12px;">${key}</strong><span style="color:${color};font-size:11px;font-weight:700;">${flag||'N/A'}</span></div>
-        <div style="font-size:12px;color:var(--muted);margin-bottom:4px;">${val.reason||''}</div>
-        ${val.note?`<div style="font-size:11px;color:var(--muted);font-style:italic;">${val.note}</div>`:''}
-      </div>`;
-    });
-    toast('Analysis complete! Judgment: '+j, j==='APPROVE'?'success':'');
+    // Line items
+    const lineItems = data.line_items || [];
+    const liEl = document.getElementById('wf3-li-cards'); liEl.innerHTML='';
+    if (!lineItems.length) {
+      liEl.innerHTML='<div style="color:var(--muted);padding:12px;font-size:12px;">No line items returned.</div>';
+    } else {
+      lineItems.forEach((li, idx) => {
+        const st = (li.status||'').toUpperCase();
+        const stColor = st==='APPROVED'?'var(--green)':st==='REJECTED'?'var(--red)':'var(--yellow)';
+        const notes = (li.audit_notes||[]).map(n =>
+          `<div style="margin-top:4px;"><span class="audit-tag">${n.tag||''}</span><span style="font-size:11px;color:var(--muted);">${n.message||''}</span></div>`
+        ).join('');
+        liEl.innerHTML += `
+          <div style="background:var(--surface2);border:1px solid var(--border);border-left:3px solid ${stColor};border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+              <span style="font-size:12px;font-weight:600;">#${idx+1} ${li.description||'—'}</span>
+              <span class="li-status ${st}">${st.replace('_',' ')}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;font-size:11px;color:var(--muted);margin-bottom:6px;">
+              <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase;">Date</div>${li.date||'—'}</div>
+              <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase;">Category</div>${li.category||'—'}</div>
+              <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase;">Requested</div><span style="color:var(--text);font-family:'JetBrains Mono',monospace;">${Number(li.requested_amount||0).toFixed(2)}</span></div>
+              <div><div style="color:var(--muted);font-size:10px;text-transform:uppercase;">Approved</div><span style="color:${stColor};font-family:'JetBrains Mono',monospace;font-weight:700;">${Number(li.approved_amount||0).toFixed(2)}</span></div>
+            </div>
+            ${notes ? `<div style="border-top:1px solid var(--border);padding-top:6px;">${notes}</div>` : ''}
+          </div>`;
+      });
+    }
+    toast('Analysis complete! Judgment: '+j.replace('_',' '), j==='APPROVE'?'success':'');
   } catch(e) {
     toast('Error: '+e.message,'error');
     for (let i=1;i<=3;i++) setStep('wf3',i,'');
@@ -872,23 +1016,170 @@ async function runWorkflow3() {
   } finally { btn.disabled=false; btn.innerHTML='Analyze Reimbursement →'; }
 }
 
+// ── Receipt Edits ─────────────────────────────────────────────────────────
+async function loadEditsDocPicker() {
+  if (!token) { toast('Please login first','error'); return; }
+  const res = await api('/api/v1/documents/');
+  if (!res.ok) { toast('Failed to load documents','error'); return; }
+  const docs = await res.json();
+  const sel = document.getElementById('edits-doc-select');
+  if (!docs.length) {
+    sel.innerHTML = '<option value="">No documents found — upload in Workflow 2 first</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">— select a receipt —</option>' +
+    docs.map(d => `<option value="${d.document_id}" data-extracted='${JSON.stringify(d.extracted_data||{})}'>${d.name} (${d.document_id.slice(0,8)}…)</option>`).join('');
+  sel.onchange = () => {
+    const opt = sel.options[sel.selectedIndex];
+    const extracted = opt ? (() => { try { return JSON.parse(opt.dataset.extracted||'{}'); } catch { return {}; } })() : {};
+    const preview = document.getElementById('edits-original-preview');
+    if (sel.value) {
+      document.getElementById('edits-original-json').textContent = JSON.stringify(extracted, null, 2);
+      preview.style.display = 'block';
+      // Pre-fill form fields with current extracted values
+      const fieldMap = { merchant_name:'ef-merchant_name', date:'ef-date', time:'ef-time',
+        currency:'ef-currency', total_amount:'ef-total_amount', destination:'ef-destination',
+        departure_date:'ef-departure_date', arrival_date:'ef-arrival_date', location:'ef-location' };
+      for (const [key, id] of Object.entries(fieldMap)) {
+        const el = document.getElementById(id);
+        const v = extracted[key];
+        el.value = (v && v !== 'Not found in Receipt') ? v : '';
+      }
+      const ovSel = document.getElementById('ef-overseas');
+      const ov = extracted['overseas'];
+      ovSel.value = ov === true ? 'true' : ov === false ? 'false' : '';
+    } else {
+      preview.style.display = 'none';
+    }
+  };
+  toast('Loaded ' + docs.length + ' document(s)','success');
+}
+
+async function submitReceiptEdits() {
+  if (!token) { toast('Please login first','error'); return; }
+  const sel = document.getElementById('edits-doc-select');
+  const docId = sel.value;
+  if (!docId) { toast('Select a document first','error'); return; }
+
+  // Collect only non-empty fields
+  const edits = {};
+  const textFields = ['merchant_name','date','time','currency','total_amount','destination','departure_date','arrival_date','location'];
+  for (const f of textFields) {
+    const v = document.getElementById('ef-'+f).value.trim();
+    if (v !== '') edits[f] = f === 'total_amount' ? parseFloat(v) : v;
+  }
+  const ov = document.getElementById('ef-overseas').value;
+  if (ov !== '') edits['overseas'] = ov === 'true';
+
+  if (!Object.keys(edits).length) { toast('Fill in at least one field to edit','error'); return; }
+
+  const btn = document.getElementById('btn-edits');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Submitting…';
+
+  try {
+    const res = await api(`/api/v1/documents/${docId}/edits`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(edits),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || JSON.stringify(data));
+
+    const cs = data.change_summary || {};
+    document.getElementById('edits-placeholder').style.display = 'none';
+    document.getElementById('edits-result').classList.add('show');
+    document.getElementById('edits-doc-id-val').textContent = data.document_id || '—';
+    document.getElementById('edits-change-count').textContent = `${cs.change_count || 0} field(s) changed (${cs.high_risk_count || 0} high-risk)`;
+
+    const risk = cs.overall_risk || 'NONE';
+    const riskEmoji = risk === 'HIGH' ? '🔴' : risk === 'MEDIUM' ? '🟡' : '🟢';
+    document.getElementById('edits-risk-badge').innerHTML = `<span class="risk-badge ${risk}">${riskEmoji} ${risk}</span>`;
+
+    const listEl = document.getElementById('edits-changes-list');
+    const changes = cs.changes_by_field || {};
+    if (!Object.keys(changes).length) {
+      listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;">No changes recorded.</div>';
+    } else {
+      listEl.innerHTML = Object.entries(changes).map(([field, c]) => {
+        const sev = c.severity || 'LOW';
+        const sevColor = sev === 'HIGH' ? 'var(--red)' : sev === 'MEDIUM' ? 'var(--yellow)' : 'var(--green)';
+        return `<div class="change-row">
+          <div class="field-name">${field} <span style="color:${sevColor};font-size:9px;">${sev}</span></div>
+          <div class="change-desc">${c.description || ''}</div>
+          <div style="margin-top:4px;display:flex;gap:12px;">
+            <span class="orig-val">${c.original ?? 'null'}</span>
+            <span style="color:var(--muted);">→</span>
+            <span class="new-val">${c.edited ?? 'null'}</span>
+          </div>
+        </div>`;
+      }).join('');
+    }
+    document.getElementById('edits-summary-json').textContent = JSON.stringify(cs, null, 2);
+    toast('Edits saved! Risk: ' + risk, risk === 'HIGH' ? 'error' : 'success');
+  } catch(e) {
+    toast('Error: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = 'Submit Edits →';
+  }
+}
+
 // ── DB Viewer ──────────────────────────────────────────────────────────────
+let _dbCurrentTable = '';
+let _dbRows = [];
+
 function loadDbTab(table) {
+  _dbCurrentTable = table;
   document.querySelectorAll('.db-tab-btn').forEach((b,i) => {
     b.classList.toggle('active', ['employees','policies','documents','settlements','reimbursements','policy_sections'][i]===table);
   });
   document.getElementById('db-table-wrap').innerHTML='<div class="empty-state"><span class="spinner"></span> Loading…</div>';
   fetch('/test/db/'+table)
     .then(r=>r.json()).then(rows => {
+      _dbRows = rows;
       if (!rows.length) { document.getElementById('db-table-wrap').innerHTML='<div class="empty-state">No data found</div>'; return; }
       const keys = Object.keys(rows[0]);
-      const thead = `<thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}</tr></thead>`;
-      const tbody = `<tbody>${rows.map(r=>`<tr>${keys.map(k=>{
-        let v=r[k]; if(v===null||v===undefined)v='—'; else if(typeof v==='object')v=JSON.stringify(v).slice(0,60)+'…'; else if(typeof v==='string'&&v.length>80)v=v.slice(0,80)+'…';
-        return `<td title="${String(r[k]??'')}">${v}</td>`;
-      }).join('')}</tr>`).join('')}</tbody>`;
+      const thead = `<thead><tr>${keys.map(k=>`<th>${k}</th>`).join('')}<th style="width:40px;"></th></tr></thead>`;
+      const tbody = `<tbody>${rows.map((r,idx)=>`<tr style="cursor:pointer;" onclick="openDetailModal(${idx})" title="Click to view full row">${keys.map(k=>{
+        let v=r[k];
+        if(v===null||v===undefined) v='—';
+        else if(typeof v==='object') v='<span style="color:var(--blue);font-size:10px;">{JSON}</span>';
+        else if(typeof v==='string'&&v.length>60) v=v.slice(0,60)+'…';
+        return `<td>${v}</td>`;
+      }).join('')}<td style="text-align:center;color:var(--muted);font-size:12px;">›</td></tr>`).join('')}</tbody>`;
       document.getElementById('db-table-wrap').innerHTML=`<table>${thead}${tbody}</table>`;
     }).catch(() => { document.getElementById('db-table-wrap').innerHTML='<div class="empty-state">Failed to load data</div>'; });
+}
+
+function openDetailModal(rowIdx) {
+  const row = _dbRows[rowIdx];
+  if (!row) return;
+  const firstKey = Object.keys(row)[0];
+  document.getElementById('detail-modal-title').textContent = `${_dbCurrentTable} — row ${rowIdx + 1}`;
+  document.getElementById('detail-modal-body').innerHTML = Object.entries(row).map(([k, v]) => {
+    let valHtml;
+    if (v === null || v === undefined) {
+      valHtml = `<span class="df-null">null</span>`;
+    } else if (typeof v === 'object') {
+      const pretty = JSON.stringify(v, null, 2);
+      valHtml = `<pre class="df-json">${escHtml(pretty)}</pre>`;
+    } else if (typeof v === 'boolean') {
+      valHtml = `<span class="df-val" style="color:${v?'var(--green)':'var(--red)'};">${v}</span>`;
+    } else {
+      valHtml = `<span class="df-val">${escHtml(String(v))}</span>`;
+    }
+    return `<div class="detail-field"><div class="df-label">${k}</div>${valHtml}</div>`;
+  }).join('');
+  document.getElementById('detail-modal').classList.add('open');
+}
+
+function closeDetailModal(e) {
+  if (e.target === document.getElementById('detail-modal')) {
+    document.getElementById('detail-modal').classList.remove('open');
+  }
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
 </body>
