@@ -317,6 +317,11 @@
           </div>
 
           <div class="result-field">
+            <label>Settlement ID <button class="copy-btn" onclick="copyText('wf2-settlement-id-val')">⎘</button></label>
+            <div class="value" style="font-size:11px;color:var(--accent);" id="wf2-settlement-id-val">—</div>
+          </div>
+
+          <div class="result-field">
             <label>Document IDs <button class="copy-btn" onclick="copyText_val((window._lastDocumentIds||[]).join(','))">⎘ copy all</button></label>
             <div class="value" style="font-size:11px;" id="wf2-doc-ids-val">—</div>
           </div>
@@ -324,6 +329,11 @@
           <div class="result-field" id="wf2-warnings-section" style="display:none;">
             <label>⚠️ Warnings</label>
             <div class="warnings-list" id="wf2-warnings"></div>
+          </div>
+
+          <div class="result-field" id="wf2-skipped-section" style="display:none;">
+            <label>⛔ Skipped (unreadable / invalid receipts)</label>
+            <div id="wf2-skipped-list" style="font-size:12px;color:var(--muted);"></div>
           </div>
 
           <div class="result-field">
@@ -393,15 +403,18 @@
             <label>Policy * <button class="btn-ghost btn-sm" onclick="loadPolicies()" style="margin-left:8px;font-size:11px;">↻ Load</button></label>
             <select id="wf3-policy-select" style="font-family:Inter;"><option value="">— click Load to fetch policies —</option></select>
           </div>
+          <div class="form-group">
+            <label>Settlement ID * <span style="font-size:10px;color:var(--green);">(auto-filled from Workflow 2)</span></label>
+            <input type="text" id="wf3-settlement-id" placeholder="uuid from Workflow 2 upload result" />
+          </div>
           <div class="form-row">
             <div class="form-group"><label>Main Category *</label><input type="text" id="wf3-main-cat" placeholder="e.g. Business Travel" /></div>
             <div class="form-group"><label>Sub Category *</label><input type="text" id="wf3-sub-cat" placeholder="e.g. Hotel Accommodation" /></div>
           </div>
           <div class="progress-steps" id="wf3-steps">
-            <div class="step-item" id="wf3-s1"><div class="step-dot"></div>Loading user &amp; policy context</div>
-            <div class="step-item" id="wf3-s2"><div class="step-dot"></div>LLM evaluating mandatory conditions</div>
-            <div class="step-item" id="wf3-s3"><div class="step-dot"></div>Synthesizing final judgment</div>
-            <div class="step-item" id="wf3-s4"><div class="step-dot"></div>Saving reimbursement record</div>
+            <div class="step-item" id="wf3-s1"><div class="step-dot"></div>Loading user, policy &amp; RAG context</div>
+            <div class="step-item" id="wf3-s2"><div class="step-dot"></div>LLM evaluating conditions &amp; computing reimbursement amounts</div>
+            <div class="step-item" id="wf3-s3"><div class="step-dot"></div>Saving reimbursement record</div>
           </div>
           <button class="btn btn-primary" onclick="runWorkflow3()" id="btn-wf3">Analyze Reimbursement →</button>
         </div>
@@ -411,8 +424,13 @@
           <div class="output-placeholder" id="wf3-placeholder"><div class="arrow">→</div>Fill in details and click <em>Analyze</em><br><span style="font-size:11px;color:var(--muted);">(may take 30–90 seconds)</span></div>
           <div class="result-block" id="wf3-result">
             <div class="result-field" style="margin-bottom:16px;"><label>Judgment</label><div id="wf3-judgment-badge" style="margin-top:6px;"></div></div>
+            <div class="result-field"><label>Confidence</label><div id="wf3-confidence-bar" style="margin-top:4px;"></div></div>
             <div class="result-field"><label>Reimbursement ID</label><div class="value"><span id="wf3-reim-id-val">—</span><button class="copy-btn" onclick="copyText('wf3-reim-id-val')">⎘</button></div></div>
             <div class="result-field"><label>Summary</label><div style="font-size:12px;color:var(--text);line-height:1.6;padding:10px;background:var(--surface2);border-radius:var(--radius-sm);" id="wf3-summary-text"></div></div>
+            <div class="result-field" id="wf3-amount-section" style="display:none;">
+              <label>Approved Amount Breakdown</label>
+              <div id="wf3-amount-table" style="margin-top:6px;"></div>
+            </div>
             <div class="result-field">
               <label>Chain of Thought</label>
               <div class="collapsible-header" onclick="toggleCollapse('wf3-cot-body', this)"><span style="font-size:12px;color:var(--muted)">Click to expand condition-by-condition analysis</span><span class="chevron">▼</span></div>
@@ -430,6 +448,7 @@
       <button class="db-tab-btn active" onclick="loadDbTab('employees')">Users</button>
       <button class="db-tab-btn" onclick="loadDbTab('policies')">Policies</button>
       <button class="db-tab-btn" onclick="loadDbTab('documents')">Documents</button>
+      <button class="db-tab-btn" onclick="loadDbTab('settlements')">Settlements</button>
       <button class="db-tab-btn" onclick="loadDbTab('reimbursements')">Reimbursements</button>
       <button class="db-tab-btn" onclick="loadDbTab('policy_sections')">Policy Sections</button>
     </div>
@@ -448,6 +467,7 @@
 let token = localStorage.getItem('reclaim_token') || '';
 let currentUser = JSON.parse(localStorage.getItem('reclaim_user') || 'null');
 window._lastDocumentIds = [];
+window._lastSettlementId = '';
 
 window.onload = () => { if (token && currentUser) updateAuthBadge(); };
 
@@ -606,11 +626,16 @@ async function runWorkflow2() {
 
     for (let i=1;i<=4;i++) setStep('wf2',i,'done');
     window._lastDocumentIds = data.document_ids || [];
+    window._lastSettlementId = data.settlement_id || '';
 
     document.getElementById('wf2-placeholder').style.display='none';
     document.getElementById('wf2-result').classList.add('show');
-    document.getElementById('wf2-receipt-count').textContent = `${(data.receipts||[]).length} receipt(s) processed`;
+    document.getElementById('wf2-receipt-count').textContent = `${(data.receipts||[]).length} receipt(s) in template, ${(data.skipped_receipts||[]).length} skipped`;
+    document.getElementById('wf2-settlement-id-val').textContent = data.settlement_id || '—';
     document.getElementById('wf2-doc-ids-val').textContent = (data.document_ids||[]).join(', ') || '—';
+
+    // Auto-populate WF3 settlement_id field
+    if (data.settlement_id) document.getElementById('wf3-settlement-id').value = data.settlement_id;
 
     const warns = data.all_warnings || [];
     const warnSec = document.getElementById('wf2-warnings-section');
@@ -618,6 +643,17 @@ async function runWorkflow2() {
       warnSec.style.display='block';
       document.getElementById('wf2-warnings').innerHTML = warns.map(w=>`<span class="warning-chip">⚠ ${w}</span>`).join('');
     } else { warnSec.style.display='none'; }
+
+    const skipped = data.skipped_receipts || [];
+    const skipSec = document.getElementById('wf2-skipped-section');
+    if (skipped.length) {
+      skipSec.style.display='block';
+      document.getElementById('wf2-skipped-list').innerHTML = skipped.map(r =>
+        `<div style="padding:6px 0;border-bottom:1px solid var(--border);">
+          <strong>${r.description||r.document_id}</strong> — ${r.warnings.join('; ')}
+        </div>`
+      ).join('');
+    } else { skipSec.style.display='none'; }
 
     renderReceiptsTable(data.receipts||[], data.totals||{});
     renderTotals(data.totals||{});
@@ -743,10 +779,12 @@ async function loadPolicies() {
 async function runWorkflow3() {
   if (!token) { toast('Please login first','error'); return; }
   const selectedDocs = [...document.querySelectorAll('#doc-picker input[type="checkbox"]:checked')].map(c=>c.value);
-  const policyId = document.getElementById('wf3-policy-select').value;
-  const mainCat  = document.getElementById('wf3-main-cat').value.trim();
-  const subCat   = document.getElementById('wf3-sub-cat').value.trim();
+  const policyId    = document.getElementById('wf3-policy-select').value;
+  const settlementId = document.getElementById('wf3-settlement-id').value.trim();
+  const mainCat     = document.getElementById('wf3-main-cat').value.trim();
+  const subCat      = document.getElementById('wf3-sub-cat').value.trim();
   if (!selectedDocs.length) { toast('Select at least one document','error'); return; }
+  if (!settlementId) { toast('Settlement ID is required (run Workflow 2 first)','error'); return; }
   if (!policyId) { toast('Select a policy','error'); return; }
   if (!mainCat)  { toast('Enter main category','error'); return; }
   if (!subCat)   { toast('Enter sub category','error'); return; }
@@ -759,27 +797,61 @@ async function runWorkflow3() {
 
   setStep('wf3',1,'active');
   setTimeout(() => { setStep('wf3',1,'done'); setStep('wf3',2,'active'); }, 1000);
-  setTimeout(() => { setStep('wf3',2,'done'); setStep('wf3',3,'active'); }, 20000);
-  setTimeout(() => { setStep('wf3',3,'done'); setStep('wf3',4,'active'); }, 50000);
+  setTimeout(() => { setStep('wf3',2,'done'); setStep('wf3',3,'active'); }, 30000);
 
   try {
     const res = await api('/api/v1/reimbursements/analyze', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ document_ids:selectedDocs, policy_id:policyId, main_category:mainCat, sub_category:subCat }),
+      body:JSON.stringify({ document_ids:selectedDocs, settlement_id:settlementId, policy_id:policyId, main_category:mainCat, sub_category:subCat }),
     });
     const data = await res.json(); if (!res.ok) throw new Error(data.detail||JSON.stringify(data));
-    for (let i=1;i<=4;i++) setStep('wf3',i,'done');
+    for (let i=1;i<=3;i++) setStep('wf3',i,'done');
 
     document.getElementById('wf3-placeholder').style.display='none';
     document.getElementById('wf3-result').classList.add('show');
     document.getElementById('wf3-reim-id-val').textContent = data.reim_id||'—';
     document.getElementById('wf3-summary-text').textContent = data.summary||'—';
 
+    // Judgment badge
     const j = (data.judgment||'MANUAL REVIEW').toUpperCase();
     const badgeClass = j==='APPROVE'?'APPROVE':j==='FLAG'?'FLAG':'REVIEW';
     const emoji = j==='APPROVE'?'✅':j==='FLAG'?'🚩':'⚠️';
     document.getElementById('wf3-judgment-badge').innerHTML = `<span class="judgment-badge ${badgeClass}">${emoji} ${j}</span>`;
 
+    // Confidence bar
+    const conf = typeof data.confidence === 'number' ? data.confidence : 0;
+    const confPct = Math.round(conf * 100);
+    const confColor = conf >= 0.8 ? 'var(--green)' : conf >= 0.5 ? 'var(--yellow)' : 'var(--red)';
+    document.getElementById('wf3-confidence-bar').innerHTML = `
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="flex:1;background:var(--surface3);border-radius:4px;height:6px;overflow:hidden;">
+          <div style="width:${confPct}%;height:100%;background:${confColor};border-radius:4px;transition:width 0.4s;"></div>
+        </div>
+        <span style="font-family:'JetBrains Mono',monospace;font-size:12px;color:${confColor};min-width:36px;">${confPct}%</span>
+      </div>`;
+
+    // Amount breakdown table
+    const amtObj = data.amount || {};
+    const amtEntries = Object.entries(amtObj);
+    const amtSec = document.getElementById('wf3-amount-section');
+    if (amtEntries.length) {
+      amtSec.style.display='block';
+      const cur = data.currency || 'MYR';
+      const rows = amtEntries.map(([cat, v]) => `
+        <tr>
+          <td style="font-family:Inter;">${cat}</td>
+          <td>${cur} ${Number(v.original_amount||0).toFixed(2)}</td>
+          <td style="color:var(--green);font-weight:600;">${cur} ${Number(v.reimbursement||0).toFixed(2)}</td>
+          <td style="color:var(--muted);">${v.original_amount ? Math.round((v.reimbursement||0)/(v.original_amount)*100) : 0}%</td>
+        </tr>`).join('');
+      document.getElementById('wf3-amount-table').innerHTML = `
+        <table style="width:100%;font-size:12px;border-collapse:collapse;">
+          <thead><tr><th style="text-align:left;padding:6px 8px;">Category</th><th style="padding:6px 8px;">Original</th><th style="padding:6px 8px;">Approved</th><th style="padding:6px 8px;">Rate</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>`;
+    } else { amtSec.style.display='none'; }
+
+    // Chain of thought
     const cot = data.chain_of_thought||{};
     const cotEl = document.getElementById('wf3-cot-cards'); cotEl.innerHTML='';
     Object.entries(cot).forEach(([key,val]) => {
@@ -795,7 +867,7 @@ async function runWorkflow3() {
     toast('Analysis complete! Judgment: '+j, j==='APPROVE'?'success':'');
   } catch(e) {
     toast('Error: '+e.message,'error');
-    for (let i=1;i<=4;i++) setStep('wf3',i,'');
+    for (let i=1;i<=3;i++) setStep('wf3',i,'');
     document.getElementById('wf3-placeholder').style.display='flex';
   } finally { btn.disabled=false; btn.innerHTML='Analyze Reimbursement →'; }
 }
@@ -803,7 +875,7 @@ async function runWorkflow3() {
 // ── DB Viewer ──────────────────────────────────────────────────────────────
 function loadDbTab(table) {
   document.querySelectorAll('.db-tab-btn').forEach((b,i) => {
-    b.classList.toggle('active', ['employees','policies','documents','reimbursements','policy_sections'][i]===table);
+    b.classList.toggle('active', ['employees','policies','documents','settlements','reimbursements','policy_sections'][i]===table);
   });
   document.getElementById('db-table-wrap').innerHTML='<div class="empty-state"><span class="spinner"></span> Loading…</div>';
   fetch('/test/db/'+table)

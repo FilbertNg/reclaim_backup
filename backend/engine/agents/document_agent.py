@@ -2,20 +2,18 @@ import re
 import json
 import base64
 import concurrent.futures
-from datetime import date
-from io import BytesIO
 from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
 
 import pymupdf4llm
-from jinja2 import Template
 from langchain_core.messages import HumanMessage
 from sqlmodel import Session, select
 
-from core.models import SupportingDocument, Policy, User
+from core.models import SupportingDocument, Policy, User, TravelSettlement
 from engine.llm import get_vision_llm, get_text_llm
 from engine.prompts.document_prompts import RECEIPT_OCR_PROMPT, RECEIPT_OCR_PROMPT_WITH_CATEGORIES
+from engine.tools.generate_reimbursement_template import generate_reimbursement_template  # noqa: F401 (re-exported)
 
 # ---------------------------------------------------------------------------
 # Category → expense column keyword sets
@@ -31,6 +29,14 @@ _MEALS_KW = {
     "meal", "food", "dining", "restaurant", "beverage", "lunch", "dinner",
     "breakfast", "coffee", "snack", "catering", "f&b",
 }
+
+_NFIR = "Not found in Receipt"
+
+# Fields whose presence indicates a readable receipt
+_READABILITY_FIELDS = [
+    "merchant_name", "date", "total_amount", "currency",
+    "receipt_number", "items_summary",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -128,11 +134,30 @@ def _ocr_pdf(file_path: str, prompt: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Unreadability check
+# ---------------------------------------------------------------------------
+
+def _is_unreadable(extracted_data: dict) -> bool:
+    """Return True if all readability fields are absent/null/default — receipt is effectively empty."""
+    if not extracted_data:
+        return True
+    for field in _READABILITY_FIELDS:
+        val = extracted_data.get(field)
+        if val is not None and val != _NFIR and val != "" and val != 0:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Warnings
 # ---------------------------------------------------------------------------
 
 def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = False) -> List[str]:
     warnings = []
+
+    if _is_unreadable(extracted_data):
+        warnings.append("Receipt is unreadable or contains no extractable data.")
+        return warnings  # no point checking further fields
 
     confidence = extracted_data.get("confidence", 1.0) or 1.0
     if isinstance(confidence, (int, float)) and confidence < 0.7:
@@ -141,7 +166,7 @@ def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = Fal
     required_fields = ["date", "currency", "total_amount", "receipt_number", "receipt_name"]
     for field in required_fields:
         val = extracted_data.get(field)
-        if val is None or val == "Not found in Receipt" or val == 0:
+        if val is None or val == _NFIR or val == 0:
             if field == "total_amount" and val == 0:
                 pass  # zero amount is valid
             else:
@@ -154,8 +179,7 @@ def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = Fal
         warnings.append(f"Visual anomaly detected: {desc}")
 
     receipt_name = extracted_data.get("receipt_name") or ""
-    nfir = "Not found in Receipt"
-    if receipt_name and receipt_name != nfir and employee_name:
+    if receipt_name and receipt_name != _NFIR and employee_name:
         if receipt_name.lower().strip() != employee_name.lower().strip():
             warnings.append(
                 f"Receipt name '{receipt_name}' does not match employee name '{employee_name}'"
@@ -281,7 +305,7 @@ def process_receipts(
                     "column": "others",
                 })
 
-    # Serial DB writes
+    # Serial DB writes — save all receipts as SupportingDocuments
     document_ids: List[str] = []
     for r in llm_results:
         relative_path = f"/storage/documents/{user_id}/{Path(r['file_path']).name}"
@@ -297,11 +321,10 @@ def process_receipts(
         r["document_id"] = str(doc.document_id)
         document_ids.append(str(doc.document_id))
 
-    session.commit()
-
     user = session.exec(select(User).where(User.user_id == UUID(user_id))).first()
     user_code = user.user_code if user and user.user_code else user_id[:8] + "…"
     department = user.department if user else ""
+    rank = user.rank if user else None
 
     destination = ""
     departure_date = ""
@@ -311,13 +334,13 @@ def process_receipts(
 
     for r in llm_results:
         ed = r["extracted_data"]
-        if not destination and ed.get("destination") and ed.get("destination") != "Not found in Receipt":
+        if not destination and ed.get("destination") and ed.get("destination") != _NFIR:
             destination = ed.get("destination")
-        if not departure_date and ed.get("departure_date") and ed.get("departure_date") != "Not found in Receipt":
+        if not departure_date and ed.get("departure_date") and ed.get("departure_date") != _NFIR:
             departure_date = ed.get("departure_date")
-        if not arrival_date and ed.get("arrival_date") and ed.get("arrival_date") != "Not found in Receipt":
+        if not arrival_date and ed.get("arrival_date") and ed.get("arrival_date") != _NFIR:
             arrival_date = ed.get("arrival_date")
-        if not location and ed.get("location") and ed.get("location") != "Not found in Receipt":
+        if not location and ed.get("location") and ed.get("location") != _NFIR:
             location = ed.get("location")
         if overseas is None and ed.get("overseas") is not None:
             overseas = ed.get("overseas")
@@ -326,26 +349,27 @@ def process_receipts(
     currency = "MYR"
     for r in llm_results:
         c = (r["extracted_data"].get("currency") or "")
-        if c and c != "Not found in Receipt":
+        if c and c != _NFIR:
             currency = c
             break
 
+    # Only include receipts without warnings in the template
     receipts = []
+    skipped_receipts = []
     totals = {"transportation": 0.0, "accommodation": 0.0, "meals": 0.0, "others": 0.0}
 
     for r in llm_results:
         ed = r["extracted_data"]
         col = r["column"]
         amt = r["amount"]
-        totals[col] += amt
 
         merchant = ed.get("merchant_name") or ""
         summary = ed.get("items_summary") or ""
-        description = " - ".join(p for p in [merchant, summary] if p and p != "Not found in Receipt") or r["document_name"]
+        description = " - ".join(p for p in [merchant, summary] if p and p != _NFIR) or r["document_name"]
 
-        receipts.append({
+        receipt_entry = {
             "document_id": r.get("document_id", ""),
-            "date": ed.get("date") or "Not found in Receipt",
+            "date": ed.get("date") or _NFIR,
             "description": description,
             "category": r["category"],
             "currency": currency,
@@ -356,69 +380,98 @@ def process_receipts(
             "others": amt if col == "others" else 0.0,
             "warnings": r["warnings"],
             "extracted_data": ed,
-        })
+        }
+
+        if r["warnings"]:
+            skipped_receipts.append(receipt_entry)
+        else:
+            totals[col] += amt
+            receipts.append(receipt_entry)
 
     totals["grand_total"] = sum(totals[k] for k in ["transportation", "accommodation", "meals", "others"])
     totals["currency"] = currency
 
     all_warnings = [w for r in llm_results for w in r.get("warnings", [])]
 
-    return {
-        "document_ids": document_ids,
-        "employee": {
-            "name": employee_name,
-            "id": user_id,
-            "user_code": user_code,
-            "department": department,
-            "destination": destination,
-            "departure_date": departure_date,
-            "arrival_date": arrival_date,
-            "location": location,
-            "overseas": overseas,
-            "purpose": ", ".join(categories[:3]) if categories else "",
-        },
-        "receipts": receipts,
-        "totals": totals,
-        "all_warnings": all_warnings,
+    # Collect unique categories (no duplicates, exclude no-policy sentinel)
+    _no_policy = "No Reimbursement Policy for this receipt"
+    seen_cats: set = set()
+    all_category: List[str] = []
+    for r in llm_results:
+        cat = r["category"]
+        if cat and cat != _no_policy and cat not in seen_cats:
+            seen_cats.add(cat)
+            all_category.append(cat)
+
+    # Derive main_category as the most frequent valid category
+    cat_counts: dict = {}
+    for r in llm_results:
+        cat = r["category"]
+        if cat and cat != _no_policy:
+            cat_counts[cat] = cat_counts.get(cat, 0) + 1
+    main_category = max(cat_counts, key=lambda k: cat_counts[k]) if cat_counts else None
+
+    purpose = ", ".join(categories[:3]) if categories else ""
+
+    employee_context = {
+        "name": employee_name,
+        "id": user_id,
+        "user_code": user_code,
+        "department": department,
+        "rank": rank,
+        "destination": destination,
+        "departure_date": departure_date,
+        "arrival_date": arrival_date,
+        "location": location,
+        "overseas": overseas,
+        "purpose": purpose,
     }
 
-
-# ---------------------------------------------------------------------------
-# HTML-to-PDF template generation
-# ---------------------------------------------------------------------------
-
-_TEMPLATE_PATH = Path(__file__).parent.parent / "templates" / "reimbursement_template.html"
-
-
-def generate_reimbursement_template(aggregated_results: dict, output_path: str) -> str:
-    """
-    Render a Business Travel Settlement PDF from aggregated receipt results.
-
-    aggregated_results: output of process_receipts()
-    output_path: absolute path where the PDF will be saved.
-    Returns output_path on success.
-    """
-    try:
-        from xhtml2pdf import pisa
-    except ImportError:
-        raise RuntimeError(
-            "xhtml2pdf is not installed. Run: uv add xhtml2pdf"
-        )
-
-    html_src = _TEMPLATE_PATH.read_text(encoding="utf-8")
-    template = Template(html_src)
-    html_content = template.render(
-        **aggregated_results,
-        generated_date=date.today().strftime("%Y-%m-%d"),
+    # Save TravelSettlement and link SupportingDocuments
+    settlement = TravelSettlement(
+        all_category=all_category,
+        main_category=main_category,
+        employee_name=employee_name,
+        employee_id=user_id,
+        employee_code=user_code,
+        employee_department=department,
+        employee_rank=rank,
+        destination=destination,
+        departure_date=departure_date,
+        arrival_date=arrival_date,
+        location=location,
+        overseas=overseas,
+        purpose=purpose,
+        currency=currency,
+        receipts=receipts + skipped_receipts,
+        totals=totals,
     )
+    session.add(settlement)
+    session.flush()
 
-    with open(output_path, "wb") as out_file:
-        status = pisa.CreatePDF(html_content, dest=out_file)
+    # Link all SupportingDocuments to this settlement
+    doc_uuid_list = [UUID(did) for did in document_ids]
+    docs = session.exec(
+        select(SupportingDocument).where(SupportingDocument.document_id.in_(doc_uuid_list))
+    ).all()
+    for doc in docs:
+        doc.settlement_id = settlement.settlement_id
+        session.add(doc)
 
-    if status.err:
-        raise RuntimeError(f"PDF generation failed with {status.err} error(s)")
+    session.commit()
+    session.refresh(settlement)
 
-    return output_path
+    return {
+        "settlement_id": str(settlement.settlement_id),
+        "document_ids": document_ids,
+        "employee": employee_context,
+        "receipts": receipts,
+        "skipped_receipts": skipped_receipts,
+        "totals": totals,
+        "all_warnings": all_warnings,
+        "all_category": all_category,
+        "main_category": main_category,
+    }
 
 
 # ---------------------------------------------------------------------------

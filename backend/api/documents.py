@@ -9,7 +9,8 @@ from sqlmodel import Session, select
 
 from api import deps
 from core.models import User, SupportingDocument
-from engine.agents.document_agent import process_receipts, generate_reimbursement_template
+from engine.agents.document_agent import process_receipts
+from engine.tools.generate_reimbursement_template import generate_reimbursement_template
 
 router = APIRouter()
 

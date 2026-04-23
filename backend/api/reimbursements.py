@@ -14,9 +14,11 @@ router = APIRouter()
 
 class AnalyzeReimbursementRequest(BaseModel):
     document_ids: List[str]
+    settlement_id: str          # required — from Workflow 2 upload response
     policy_id: str
     main_category: str
     sub_category: str
+    all_category: Optional[List[str]] = None
 
 
 @router.get("/health")
@@ -40,10 +42,12 @@ def list_reimbursements(
             "reim_id": str(r.reim_id),
             "user_id": str(r.user_id),
             "policy_id": str(r.policy_id) if r.policy_id else None,
+            "settlement_id": str(r.settlement_id) if r.settlement_id else None,
             "main_category": r.main_category,
             "sub_category": r.sub_category,
             "currency": r.currency,
-            "amount": float(r.amount),
+            "amount": r.amount,
+            "confidence": r.confidence,
             "judgment": r.judgment,
             "status": r.status,
             "summary": r.summary,
@@ -61,7 +65,6 @@ def analyze_reimbursement(
     current_user: User = Depends(deps.get_current_user),
 ) -> dict:
     """Run compliance analysis on uploaded documents against a policy."""
-    # Validate all document_ids belong to current user
     for doc_id_str in request.document_ids:
         try:
             doc_uuid = UUID(doc_id_str)
@@ -77,29 +80,45 @@ def analyze_reimbursement(
                 detail=f"Document {doc_id_str} not found or does not belong to you",
             )
 
+    # Derive all_category from the settlement if caller didn't supply it
+    all_category = request.all_category
+    if not all_category:
+        from core.models import TravelSettlement
+        try:
+            settlement = db.get(TravelSettlement, UUID(request.settlement_id))
+            if settlement:
+                all_category = settlement.all_category
+        except Exception:
+            pass
+    if not all_category:
+        all_category = [request.main_category] if request.main_category else []
+
     try:
         result = run_compliance_workflow(
             document_ids=request.document_ids,
+            settlement_id=request.settlement_id or "",
             policy_id=request.policy_id,
             main_category=request.main_category,
             sub_category=request.sub_category,
             user_id=str(current_user.user_id),
+            all_category=all_category,
             session=db,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Compliance workflow failed: {e}")
 
-    # Fetch and return the full reimbursement row
     if result.get("reimbursement_id"):
         reim = db.get(Reimbursement, UUID(result["reimbursement_id"]))
         if reim:
             return {
                 "reim_id": str(reim.reim_id),
+                "settlement_id": str(reim.settlement_id) if reim.settlement_id else None,
                 "judgment": reim.judgment,
                 "status": reim.status,
                 "summary": reim.summary,
                 "chain_of_thought": reim.chain_of_thought,
-                "amount": float(reim.amount),
+                "amount": reim.amount,
+                "confidence": reim.confidence,
                 "currency": reim.currency,
                 "main_category": reim.main_category,
                 "sub_category": reim.sub_category,

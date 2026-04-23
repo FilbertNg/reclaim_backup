@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from sqlmodel import Session, select
 
 from api import deps
-from core.models import User, Policy, SupportingDocument, Reimbursement, PolicySection
+from core.models import User, Policy, SupportingDocument, Reimbursement, PolicySection, TravelSettlement
 
 router = APIRouter()
 
@@ -99,12 +99,32 @@ def get_reimbursements(db: Session = Depends(deps.get_db)) -> List[dict]:
             "sub_category": r.sub_category,
             "judgment": r.judgment,
             "status": r.status,
-            "amount": float(r.amount),
+            "amount": r.amount,
             "currency": r.currency,
             "summary": r.summary,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         }
         for r in reims
+    ]
+
+
+@router.get("/db/settlements")
+def get_settlements(db: Session = Depends(deps.get_db)) -> List[dict]:
+    settlements = db.exec(select(TravelSettlement)).all()
+    return [
+        {
+            "settlement_id": str(s.settlement_id),
+            "reimbursement_id": str(s.reimbursement_id) if s.reimbursement_id else None,
+            "main_category": s.main_category,
+            "all_category": s.all_category,
+            "employee_name": s.employee_name,
+            "employee_department": s.employee_department,
+            "currency": s.currency,
+            "grand_total": s.totals.get("grand_total") if s.totals else None,
+            "receipt_count": len(s.receipts) if s.receipts else 0,
+            "created_at": s.created_at.isoformat() if s.created_at else None,
+        }
+        for s in settlements
     ]
 
 

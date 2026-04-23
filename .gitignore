@@ -59,7 +59,7 @@ Makefile
 
 # plans mds
 agent_workflow_plans.md
-CLAUDE.md
+# CLAUDE.md
 
 # agent
 .claude/
