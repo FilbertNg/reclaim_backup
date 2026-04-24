@@ -27,7 +27,7 @@ import type {
 } from "../../../src/types/claim";
 
 // ─── Mock data (swap for real API calls at backend handoff) ───────────────────
-import { POLICY_DATA } from "../../../src/mocks/policyData";
+import { POLICY_DATA, type MainCategoryConfig } from "../../../src/mocks/policyData";
 import { MOCK_DB_DATA, MOCK_OCR_RECEIPTS } from "../../../src/mocks/claimMockData";
 
 // ─── Screen components ────────────────────────────────────────────────────────
