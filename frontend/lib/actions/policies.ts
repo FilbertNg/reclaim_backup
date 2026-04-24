@@ -27,7 +27,7 @@ const MOCK_POLICIES: Policy[] = [
 
 /** Fetch all reimbursable policies from the backend. */
 export async function getPolicies(): Promise<Policy[]> {
-  const result = await apiGet<unknown[]>(`${API_PREFIX}/policies`);
+  const result = await apiGet<unknown[]>(`${API_PREFIX}/policies/`);
   if (!result.data) return MOCK_POLICIES;
 
   return result.data.map((item: unknown) => {

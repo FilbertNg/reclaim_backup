@@ -7,7 +7,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { cookies } from "next/headers";
-import { apiGet, API_PREFIX } from "@/lib/api/client";
+import { apiGet, apiPatch, apiPostMultipart, API_PREFIX } from "@/lib/api/client";
 import type { ReimbursementRaw } from "@/lib/api/types";
 import type { Claim, ClaimBundle, AiStatus, LineItem } from "@/app/hr/hr_components/mockData";
 
@@ -169,48 +169,18 @@ export async function updateReimbursementStatus(
   reimId: string,
   status: "APPROVED" | "REJECTED"
 ): Promise<{ ok: boolean; error?: string }> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session")?.value;
-  const API_URL =
-    process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-  const res = await fetch(`${API_URL}${API_PREFIX}/reimbursements/${reimId}/status`, {
-    method: "PATCH",
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
-    body: JSON.stringify({ status }),
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    return { ok: false, error: body?.detail ?? `Failed (${res.status})` };
+  const result = await apiPatch<void>(`${API_PREFIX}/reimbursements/${reimId}/status`, { status });
+  if (result.error) {
+    return { ok: false, error: result.error };
   }
   return { ok: true };
 }
 
 /** Upload a policy PDF to the backend. */
 export async function uploadPolicy(formData: FormData): Promise<{ ok: boolean; error?: string }> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get("session")?.value;
-  const API_URL =
-    process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
-  const res = await fetch(`${API_URL}${API_PREFIX}/policies/upload`, {
-    method: "POST",
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      // Note: do NOT set Content-Type — let the browser set multipart boundary
-    },
-    body: formData,
-    cache: "no-store",
-  });
-
-  if (!res.ok) {
-    const body = await res.json().catch(() => null);
-    return { ok: false, error: body?.detail ?? `Upload failed (${res.status})` };
+  const result = await apiPostMultipart<void>(`${API_PREFIX}/policies/upload`, formData);
+  if (result.error) {
+    return { ok: false, error: result.error };
   }
   return { ok: true };
 }
