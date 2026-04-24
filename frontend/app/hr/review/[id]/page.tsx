@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 
 import { ArrowLeft, AlertTriangle, Clock, ShieldCheck, ShieldX, ChevronDown, ZoomIn, Pencil, FileText, ExternalLink, Download, X } from "lucide-react";
 import { ClaimBundle, LineItem, MOCK_BUNDLES } from "../../hr_components/mockData";
-import { CheckCircle2, LayoutDashboard } from "lucide-react";
+import { CheckCircle2, LayoutDashboard, Loader2 } from "lucide-react";
 import { SuccessModal } from "../../hr_components/SuccessModal";
 import { getHRClaimBundle, updateReimbursementStatus } from "@/lib/actions/hr";
 
