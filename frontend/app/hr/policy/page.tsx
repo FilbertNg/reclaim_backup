@@ -345,10 +345,10 @@ export default function PolicyStudio() {
     // ── New policy: upload to backend ──────────────────────────────────────
     if (editingPolicy === "new" && mainPolicyFile) {
       const form = new FormData();
-      form.append("file", mainPolicyFile);
+      form.append("files", mainPolicyFile);
       form.append("alias", editName || "New Policy");
-      // Append appendix files too if backend supports it
-      appendixFiles.forEach((f) => form.append("appendix", f));
+      // Append appendix files too
+      appendixFiles.forEach((f) => form.append("files", f));
 
       setSavingStep(1);
       const result = await uploadPolicy(form);

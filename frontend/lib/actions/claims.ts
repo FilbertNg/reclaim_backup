@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { cookies } from "next/headers";
-import { apiGet, apiPost, API_PREFIX } from "@/lib/api/client";
+import { apiGet, apiPost, apiPostMultipart, API_PREFIX } from "@/lib/api/client";
 import type {
   ClaimSummary,
   DetailedClaim,
@@ -231,20 +231,11 @@ export async function submitClaim(
 /** Upload receipt files to backend for OCR processing. */
 export async function uploadDocuments(files: File[]): Promise<DocumentUploadResponse | { error: string }> {
   try {
-    const headers = await getAuthHeaders();
     const form = new FormData();
     files.forEach(f => form.append("files", f));
-    const res = await fetch(`${API_URL}${API_PREFIX}/documents/upload`, {
-      method: "POST",
-      headers,
-      body: form,
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      return { error: body?.detail ?? `Upload failed (${res.status})` };
-    }
-    return await res.json();
+    const result = await apiPostMultipart<DocumentUploadResponse>(`${API_PREFIX}/documents/upload`, form);
+    if (result.error) return { error: result.error };
+    return result.data!;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Upload failed" };
   }
@@ -256,18 +247,9 @@ export async function editDocument(
   edits: EditDocumentRequest
 ): Promise<EditDocumentResponse | { error: string }> {
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${API_URL}${API_PREFIX}/documents/${documentId}/edits`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(edits),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      return { error: body?.detail ?? `Edit failed (${res.status})` };
-    }
-    return await res.json();
+    const result = await apiPost<EditDocumentResponse>(`${API_PREFIX}/documents/${documentId}/edits`, edits);
+    if (result.error) return { error: result.error };
+    return result.data!;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Edit failed" };
   }
@@ -278,18 +260,9 @@ export async function analyzeCompliance(
   req: AnalyzeRequest
 ): Promise<AnalyzeResponse | { error: string }> {
   try {
-    const headers = await getAuthHeaders();
-    const res = await fetch(`${API_URL}${API_PREFIX}/reimbursements/analyze`, {
-      method: "POST",
-      headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify(req),
-      cache: "no-store",
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      return { error: body?.detail ?? `Analysis failed (${res.status})` };
-    }
-    return await res.json();
+    const result = await apiPost<AnalyzeResponse>(`${API_PREFIX}/reimbursements/analyze`, req);
+    if (result.error) return { error: result.error };
+    return result.data!;
   } catch (err) {
     return { error: err instanceof Error ? err.message : "Analysis failed" };
   }
