@@ -312,6 +312,51 @@ export default function PolicyStudio() {
   const handleSave = async () => {
     setIsSaving(true);
     setSavingStep(0);
+
+    // ── New policy: upload to backend ──────────────────────────────────────
+    if (editingPolicy === "new" && mainPolicyFile) {
+      const form = new FormData();
+      form.append("files", mainPolicyFile);
+      form.append("alias", editName || "New Policy");
+      // Append appendix files too
+      appendixFiles.forEach((f) => form.append("files", f));
+
+      setSavingStep(1);
+      const result = await uploadPolicy(form);
+      setSavingStep(2);
+      await new Promise((r) => setTimeout(r, 800)); // brief delay for UI
+
+      if (!result.ok) {
+        setSaveError(result.error ?? "Upload failed. Please try again.");
+        setIsSaving(false);
+        return;
+      }
+
+      // Refresh policy list from backend
+      try {
+        const updated = await getPolicies();
+        if (updated.length > 0) {
+          const mapped: Policy[] = updated.map((p) => ({
+            id: p.policy_id,
+            name: p.title,
+            version: "V1.0",
+            department: "General",
+            lastModified: p.effective_date
+              ? new Date(p.effective_date).toLocaleDateString("en-MY", { month: "short", day: "numeric", year: "numeric" })
+              : "",
+            status: (p.status === "ACTIVE" ? "Active" : p.status === "EXPIRED" ? "Expired" : "Active") as PolicyStatus,
+            icon: FileText,
+          }));
+          setPolicies([...mapped, ...MOCK_POLICIES]);
+        }
+      } catch { /* keep existing list */ }
+
+      setIsSaving(false);
+      setEditingPolicy(null);
+      return;
+    }
+
+    // ── Edit existing (local-only for now) ────────────────────────────────
     await new Promise(r => setTimeout(r, 1000));
     setSavingStep(1);
     await new Promise(r => setTimeout(r, 1000));
