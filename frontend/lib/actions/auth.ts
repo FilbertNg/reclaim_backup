@@ -6,7 +6,7 @@
 // ──────────────────────────────────────────────────────────────────────────────
 
 import { cookies } from "next/headers";
-import { API_PREFIX } from "@/lib/api/client";
+import { apiGet, apiPostForm, API_PREFIX } from "@/lib/api/client";
 import type { User } from "@/lib/api/types";
 
 const API_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -21,22 +21,14 @@ export async function login(
 ): Promise<{ user: User | null; error: string | null }> {
   try {
     // 1. Exchange credentials for token
-    const tokenRes = await fetch(`${API_URL}${API_PREFIX}/auth/login`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ username: email, password }),
-      cache: "no-store",
-    });
-
-    if (!tokenRes.ok) {
-      const body = await tokenRes.json().catch(() => null);
-      const message =
-        body?.detail ??
-        `Login failed (${tokenRes.status})`;
-      return { user: null, error: typeof message === "string" ? message : JSON.stringify(message) };
+    const form = new URLSearchParams({ username: email, password });
+    const tokenResult = await apiPostForm<{ access_token: string }>(`${API_PREFIX}/auth/login`, form);
+    
+    if (tokenResult.error || !tokenResult.data) {
+      return { user: null, error: tokenResult.error ?? "Login failed" };
     }
 
-    const { access_token } = await tokenRes.json();
+    const { access_token } = tokenResult.data;
 
     // 2. Set HttpOnly session cookie (only possible in Server Actions — Next.js 16)
     const cookieStore = await cookies();
@@ -49,16 +41,14 @@ export async function login(
     });
 
     // 3. Fetch user profile with the new token
-    const userRes = await fetch(`${API_URL}${API_PREFIX}/auth/me`, {
-      headers: { Authorization: `Bearer ${access_token}` },
-      cache: "no-store",
-    });
+    // (apiGet automatically reads the token we just set in the cookies)
+    const userResult = await apiGet<any>(`${API_PREFIX}/auth/me`);
 
-    if (!userRes.ok) {
-      return { user: null, error: "Failed to fetch user profile" };
+    if (userResult.error || !userResult.data) {
+      return { user: null, error: userResult.error ?? "Failed to fetch user profile" };
     }
 
-    const raw = await userRes.json();
+    const raw = userResult.data;
     if (!raw.user_id) return { user: null, error: "Malformed user profile response" };
     const user: User = {
       id:              raw.user_id,
@@ -96,14 +86,10 @@ export async function getCurrentUser(): Promise<User | null> {
 
     if (!token) return null;
 
-    const res = await fetch(`${API_URL}${API_PREFIX}/auth/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-      cache: "no-store",
-    });
+    const result = await apiGet<any>(`${API_PREFIX}/auth/me`);
+    if (result.error || !result.data) return null;
 
-    if (!res.ok) return null;
-
-    const raw = await res.json();
+    const raw = result.data;
     if (!raw.user_id) return null;
     return {
       id:              raw.user_id,

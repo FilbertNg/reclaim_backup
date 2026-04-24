@@ -1,7 +1,7 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
-import { ArrowLeft, AlertTriangle, Clock, ShieldCheck, ShieldX, ChevronDown, ZoomIn, Pencil, FileText, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, ShieldCheck, ShieldX, ChevronDown, ZoomIn, Pencil, FileText, ExternalLink, Download, X, Loader2 } from "lucide-react";
 import { ClaimBundle, LineItem, MOCK_BUNDLES } from "../../hr_components/mockData";
 import { getHRClaimBundle, updateReimbursementStatus } from "@/lib/actions/hr";
 
