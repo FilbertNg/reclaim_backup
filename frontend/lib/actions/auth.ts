@@ -36,7 +36,7 @@ export async function login(
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: 60 * 60 * 24 * 8, // 8 days (matches backend JWT expiry)
       sameSite: "lax",
     });
 

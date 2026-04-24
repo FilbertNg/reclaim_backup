@@ -13,8 +13,21 @@ import type {
   ExtractedData,
   ClaimSubmissionPayload,
   ReimbursementRaw,
+  DocumentUploadResponse,
+  EditDocumentRequest,
+  EditDocumentResponse,
+  AnalyzeRequest,
+  AnalyzeResponse,
 } from "@/lib/api/types";
 import { mapReimbursementToClaim } from "@/lib/api/types";
+
+const API_URL = process.env.INTERNAL_API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get("session")?.value;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 // ─── Mock Fallback ───────────────────────────────────────────────────────────
 
