@@ -466,9 +466,9 @@ export default function CaptureReceiptPage() {
     getPolicies().then((policies) => {
       // Map Policy type to local MainCategoryConfig shape
       const mapped: MainCategoryConfig[] = policies.map((p) => ({
-        main_category: p.main_category,
-        reimbursable_category: p.reimbursable_categories,
-        mandatory_conditions: p.mandatory_conditions,
+        main_category: p.title,
+        reimbursable_category: p.reimbursable_category,
+        mandatory_conditions: {},
       }));
       setPolicyData(mapped);
     });
