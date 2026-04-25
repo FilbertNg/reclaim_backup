@@ -22,11 +22,11 @@
 
 | Resource | Link |
 |---|---|
-| 🎥 **Demo Video** | *[To Be Added]* |
+| 🎥 **Demo Video** | [demo_video_and_pitch_video](https://youtu.be/9N3So5Cx0YU) |
 | 📊 **Pitch Deck** | [final_pitch_deck.pdf](docs/submission/final_pitch_deck.pdf) |
 | 📄 **PRD** | [final_product_requirement_documentation.pdf](docs/submission/final_product_requirement_documentation.pdf) |
 | 📐 **SAD** | [final_system_analysis_documentation.pdf](docs/submission/final_system_analysis_documentation.pdf) |
-| 🧪 **QATD** | *[To Be Added]* |
+| 🧪 **QATD** | [final_quality_assurance_testing_documentation.pdf](docs/submission/final_quality_assurance_testing_documentation.pdf) |
 
 ---
 
