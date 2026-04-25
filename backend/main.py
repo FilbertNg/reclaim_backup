@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 
 from core.config import settings
 from core.database import engine, init_db
+from engine.llm import check_glm_health
 from api.auth import router as auth_router
 from api.documents import router as documents_router
 from api.notifications import router as notifications_router
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     # Create tables on startup (for development purposes)
     # In production, use Alembic migrations
     init_db()
+    check_glm_health()
     yield
     # Clean up on shutdown
     engine.dispose()
