@@ -488,14 +488,6 @@ export default function PolicyStudio() {
     setEditingPolicy(null);
   };
 
-  function handleDeleteClick(e: React.MouseEvent, policy: Policy) {
-    e.stopPropagation();
-    setDeletingPolicyId(policy.id);
-    setDeletingPolicyName(policy.name);
-    setDeleteError(null);
-    setDeleteModalOpen(true);
-  }
-
   async function handleConfirmDelete() {
     if (!deletingPolicyId) return;
     setIsDeleting(true);
@@ -1126,21 +1118,12 @@ export default function PolicyStudio() {
                               </span>
                             </td>
                             <td className="py-5 px-6 text-right">
-                              <div className="flex items-center justify-end gap-3">
-                                <button 
-                                  onClick={(e) => { e.stopPropagation(); setEditingPolicy(policy.id); }} 
-                                  className="text-primary font-semibold text-sm group-hover:underline group-hover:translate-x-0.5 transition-all duration-150 active:scale-95 cursor-pointer"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={(e) => handleDeleteClick(e, policy)}
-                                  className="text-on-surface-variant hover:text-error p-1.5 rounded-lg hover:bg-error/5 transition-colors active:scale-95 cursor-pointer opacity-0 group-hover:opacity-100"
-                                  aria-label={`Delete ${policy.name}`}
-                                >
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); setEditingPolicy(policy.id); }} 
+                                className="text-primary font-semibold text-sm group-hover:underline group-hover:translate-x-0.5 transition-all duration-150 active:scale-95 cursor-pointer"
+                              >
+                                Edit
+                              </button>
                             </td>
                           </tr>
                         ))
@@ -1186,13 +1169,6 @@ export default function PolicyStudio() {
         onEdit={(id) => {
           setModalOpen(false);
           setEditingPolicy(id);
-        }}
-        onDelete={(policy) => {
-          setModalOpen(false);
-          setDeletingPolicyId(policy.id);
-          setDeletingPolicyName(policy.name);
-          setDeleteError(null);
-          setDeleteModalOpen(true);
         }}
       />
     </div>
@@ -1533,14 +1509,12 @@ function ViewAllModal({
   title,
   policies,
   onEdit,
-  onDelete,
 }: {
   isOpen: boolean;
   onClose: () => void;
   title: string;
   policies: Policy[];
   onEdit: (id: string) => void;
-  onDelete: (policy: Policy) => void;
 }) {
   const [modalQuery, setModalQuery] = useState("");
 
@@ -1610,24 +1584,12 @@ function ViewAllModal({
                     </span>
                   </td>
                   <td className="py-4 px-6 text-right">
-                    <div className="flex items-center justify-end gap-3">
-                      <button 
-                        onClick={() => onEdit(policy.id)}
-                        className="text-primary font-bold text-xs hover:underline transition-all cursor-pointer"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDelete(policy);
-                        }}
-                        className="text-on-surface-variant hover:text-error p-1.5 rounded-lg hover:bg-error/5 transition-colors active:scale-95 cursor-pointer"
-                        aria-label={`Delete ${policy.name}`}
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
+                    <button 
+                      onClick={() => onEdit(policy.id)}
+                      className="text-primary font-bold text-xs hover:underline transition-all cursor-pointer"
+                    >
+                      Edit
+                    </button>
                   </td>
                 </tr>
               ))}

@@ -201,6 +201,17 @@ def delete_policy(
     for section in sections:
         db.delete(section)
 
+    # Null out policy_id on any reimbursements referencing this policy
+    # (FK constraint prevents delete while references exist)
+    from core.models import Reimbursement
+    reims = db.exec(
+        select(Reimbursement).where(Reimbursement.policy_id == policy.policy_id)
+    ).all()
+    for reim in reims:
+        reim.policy_id = None
+        db.add(reim)
+    db.flush()
+
     # Delete associated file from disk if it exists inside the policies storage dir
     if policy.source_file_url:
         try:
