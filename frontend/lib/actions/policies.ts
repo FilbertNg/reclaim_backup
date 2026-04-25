@@ -5,7 +5,7 @@
 // Falls back to hardcoded mock data if the backend is unavailable.
 // ──────────────────────────────────────────────────────────────────────────────
 
-import { apiGet, API_PREFIX } from "@/lib/api/client";
+import { apiGet, apiDelete, API_PREFIX } from "@/lib/api/client";
 import type { Policy } from "@/lib/api/types";
 
 // ─── Mock Fallback ────────────────────────────────────────────────────────────
@@ -265,4 +265,11 @@ export async function getPolicies(): Promise<Policy[]> {
       created_by: (p.created_by as string) ?? undefined,
     };
   });
+}
+
+/** Delete a policy by its ID. Returns { ok: true } on success or { ok: false, error } on failure. */
+export async function deletePolicy(policyId: string): Promise<{ ok: boolean; error?: string }> {
+  const result = await apiDelete<null>(`${API_PREFIX}/policies/${policyId}`);
+  if (result.error) return { ok: false, error: result.error };
+  return { ok: true };
 }
