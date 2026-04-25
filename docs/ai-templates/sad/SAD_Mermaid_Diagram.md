@@ -7,42 +7,36 @@ All diagrams correspond to sections in `SAD_Report.md`. Each diagram is self-con
 ## Diagram 1: System Dependency Map (Section 2.1.3)
 
 ```mermaid
-graph TD
-    FE["Next.js Frontend\nEmployee Portal · HR Portal\nReact 19 · Tailwind CSS 4"]
-    BE["FastAPI Backend\nPython 3.13 · Uvicorn · Port 8000"]
+flowchart LR
+    subgraph ClientTier["Client Tier"]
+        FE["Next.js Frontend\nEmployee Portal · HR Portal\nReact 19 · Tailwind CSS 4"]
+    end
 
-    FE -->|"REST API /api/v1\nJWT Bearer Auth"| BE
-    BE -->|"Response"| FE
+    subgraph AppTier["Application Tier"]
+        BE["FastAPI Backend\nPython 3.13 · Uvicorn · Port 8000"]
+        subgraph AGENTS["AI Agent Layer"]
+            direction TB
+            PA["Policy Agent\n5 nodes · LangGraph"]
+            DA["Document Agent\n≤4 parallel workers"]
+            CA["Compliance Agent\n5 nodes · ReAct · LangGraph"]
+        end
+        BE --> PA
+        BE --> DA
+        BE --> CA
+    end
 
-    BE --> PA
-    BE --> DA
-    BE --> CA
-    BE --> PG
+    PG["PostgreSQL 16 · Docker\nemployees · policies · policy_sections\ntravel_settlements · reimbursements\nsupporting_documents"]
+    ILMU["ILMU API · GLM-5.1\nChat · JSON mode · ReAct · Tool-calling"]
+    OR["OpenRouter\nGLM-4.6 Vision 11B\ntext-embedding-3-small · 1536-dim"]
+    LS["LangSmith · Observability\nProject: um_hackathon"]
 
-    PA["Policy Agent\n5 nodes\nLangGraph"]
-    DA["Document Agent\nParallel ThreadPoolExecutor\n≤4 workers"]
-    CA["Compliance Agent\n5 nodes · ReAct\nLangGraph"]
+    FE -->|"REST API /api/v1 · JWT Bearer Auth"| BE
+    BE -->|"HTTP Response"| FE
 
-    PG["PostgreSQL 16\nDocker Container\nemployees · policies\npolicy_sections\ntravel_settlements\nreimbursements\nsupporting_documents"]
-
-    PA -->|"write policies\npolicy_sections + embeddings"| PG
-    DA -->|"write supporting_documents\ntravel_settlements"| PG
-    CA -->|"write reimbursements"| PG
-
-    ILMU["ILMU API\nGLM-5.1\nText · Chat · JSON mode · ReAct\nTool-calling"]
-    OR["OpenRouter\nLlama 3.2 Vision 11B — Image OCR\ntext-embedding-3-small — 1536-dim embeddings"]
-
-    PA -->|"Chat LLM × 2\ncategory + conditions"| ILMU
-    DA -->|"PDF → JSON mode"| ILMU
-    DA -->|"Image → multimodal"| OR
-    PA -->|"Batch embedding\npolicy sections"| OR
-    CA -->|"ReAct agents × N+1"| ILMU
-    CA -->|"RAG query embedding\nsearch_policy_rag"| OR
-
-    LS["LangSmith\nObservability\nProject: um_hackathon"]
-    PA -->|"Auto-traced"| LS
-    DA -->|"Auto-traced"| LS
-    CA -->|"Auto-traced"| LS
+    AGENTS -->|"write policies · documents · reimbursements"| PG
+    AGENTS -->|"Chat · ReAct · JSON mode LLM calls"| ILMU
+    AGENTS -->|"Vision OCR · Batch embedding · RAG queries"| OR
+    AGENTS -->|"Auto-traced"| LS
 ```
 
 ---
@@ -62,7 +56,7 @@ flowchart TD
 
     subgraph W2["Workflow 2 — Document Agent (parallel ≤4 workers)"]
         direction TB
-        IMG["Image receipt\nInput: base64 image + OCR prompt\n+ active category list\nModel: Llama 3.2 Vision via OpenRouter\nOutput: extracted_data JSON"]
+        IMG["Image receipt\nInput: base64 image + OCR prompt\n+ active category list\nModel: GLM-4.6 Vision via OpenRouter\nOutput: extracted_data JSON"]
         PDF["PDF receipt\nInput: PyMuPDF4LLM markdown ≤8000 chars\n+ OCR prompt + categories\nModel: GLM-5.1 JSON mode\nOutput: extracted_data JSON"]
     end
 
@@ -99,7 +93,7 @@ sequenceDiagram
     API->>DocAgent: process_receipts(files, user_id, employee_name, session)
 
     par Parallel OCR up to 4 workers
-        DocAgent->>DocAgent: Images → Llama 3.2 Vision (OpenRouter)
+        DocAgent->>DocAgent: Images → GLM-4.6 Vision (OpenRouter)
         DocAgent->>DocAgent: PDFs → GLM-5.1 JSON mode (ILMU API)
     end
 
@@ -148,59 +142,72 @@ sequenceDiagram
 
 ---
 
-## Diagram 4: Data Flow Diagram — Level 1 (Section 2.3.1.1)
+## Diagram 4a: DFD — HR Policy Setup (Section 2.3.1.1)
 
 ```mermaid
-flowchart TD
+flowchart LR
     HR(["HR"])
-    EMP(["Employee"])
+    P5["P5: Policy Management\nPOST /policies/upload\nInvokes Policy Agent"]
+    D2["D2: policies"]
+    D3["D3: policy_sections\n1536-dim embeddings"]
     LLMAPI(["LLM APIs\nILMU · OpenRouter"])
 
-    subgraph FastAPI["FastAPI Application — Correct Operational Order"]
-        direction TB
-        P5["P5: Policy Management\nPOST /policies/upload\nInvokes Policy Agent\nHR must run FIRST"]
-        P1["P1: Auth Management\nlogin · register · JWT issue"]
-        P2["P2: Receipt Ingestion\nPOST /documents/upload\nPOST /documents/id/edits\nInvokes Document Agent"]
-        P3["P3: Compliance Analysis\nPOST /reimbursements/analyze\nInvokes Compliance Agent\nRequires P5 policy + P2 settlement"]
-        P4["P4: HR Decision Processing\nPATCH /reimbursements/id/status\nHR role enforced"]
-    end
-
-    subgraph DB["PostgreSQL — Data Stores"]
-        direction TB
-        D1["D1: employees"]
-        D2["D2: policies"]
-        D3["D3: policy_sections\n1536-dim embeddings"]
-        D4["D4: travel_settlements"]
-        D5["D5: reimbursements"]
-        D6["D6: supporting_documents"]
-    end
-
-    HR -->|"policy PDFs + alias"| P5
-    P5 -->|"Chat LLM x2 + Embedding LLM batch"| LLMAPI
-    P5 -->|"write"| D2
+    HR -->|"policy PDF + alias"| P5
+    P5 -->|"write policy"| D2
     P5 -->|"write sections + embeddings"| D3
+    P5 -->|"Chat LLM x2 + Batch embedding"| LLMAPI
+```
+
+---
+
+## Diagram 4b: DFD — Employee Auth & Receipt Submission (Section 2.3.1.1)
+
+```mermaid
+flowchart LR
+    EMP(["Employee"])
+    P1["P1: Auth Management\nlogin · register · JWT issue"]
+    P2["P2: Receipt Ingestion\nPOST /documents/upload\nInvokes Document Agent"]
+    D1["D1: employees"]
+    D4["D4: travel_settlements"]
+    D6["D6: supporting_documents"]
+    LLMAPI(["LLM APIs\nILMU · OpenRouter"])
 
     EMP -->|"email + password"| P1
-    P1 -->|"read"| D1
-
     EMP -->|"receipt files JPEG/PNG/PDF"| P2
-    EMP -->|"edited field values"| P2
-    P2 -->|"Vision LLM images\nText LLM PDFs"| LLMAPI
+
+    P1 -->|"read credentials"| D1
     P2 -->|"read user context"| D1
-    P2 -->|"write"| D6
-    P2 -->|"write"| D4
+    P2 -->|"write receipts"| D6
+    P2 -->|"write settlement"| D4
+    P2 -->|"Vision LLM · Text LLM"| LLMAPI
+```
 
-    EMP -->|"settlement_id, policy_id"| P3
-    D2 -->|"read active policy + conditions"| P3
-    D3 -->|"RAG cosine vector search"| P3
-    D4 -->|"read settlement basket"| P3
-    P3 -->|"Chat LLM ReAct x N+1\nEmbedding LLM RAG queries"| LLMAPI
-    P3 -->|"write"| D5
-    P3 -->|"judgment, line_items"| EMP
+---
 
+## Diagram 4c: DFD — Compliance Analysis & HR Decision (Section 2.3.1.1)
+
+```mermaid
+flowchart LR
+    EMP(["Employee"])
+    HR(["HR"])
+    P3["P3: Compliance Analysis\nPOST /reimbursements/analyze\nInvokes Compliance Agent"]
+    P4["P4: HR Decision\nPATCH /reimbursements/status\nHR role enforced"]
+    D2["D2: policies"]
+    D3["D3: policy_sections\n1536-dim embeddings"]
+    D4["D4: travel_settlements"]
+    D5["D5: reimbursements"]
+    LLMAPI(["LLM APIs\nILMU · OpenRouter"])
+
+    EMP -->|"settlement_id · policy_id"| P3
     HR -->|"APPROVED / REJECTED"| P4
+
+    P3 -->|"reads active policy"| D2
+    P3 -->|"RAG cosine search"| D3
+    P3 -->|"reads settlement basket"| D4
+    P3 -->|"write reimbursement"| D5
+    P3 -->|"ReAct LLM x N+1 · RAG"| LLMAPI
+
     P4 -->|"read + write status"| D5
-    P4 -->|"final decision"| HR
 ```
 
 ---
@@ -334,7 +341,7 @@ flowchart TD
         direction LR
         B1["Get Active Categories\nfrom DB"]
         B2["Parallel OCR\nThreadPoolExecutor ≤4 workers"]
-        B3["Image → Llama 3.2 Vision\nOpenRouter"]
+        B3["Image → GLM-4.6 Vision\nOpenRouter"]
         B4["PDF → GLM-5.1\nJSON mode"]
         B5["Warnings Check"]
         B6["Save supporting_documents\nserial"]
