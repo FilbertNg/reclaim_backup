@@ -1,0 +1,1023 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reclaim — UM Hackathon 2026</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ─── BRAND TOKENS (dark-mode adaptation of globals.css) ─── */
+:root {
+  --p:    #9396ff;   /* primary-fixed   — bright on dark */
+  --pdim: #8387ff;   /* primary-fixed-dim */
+  --pdeep:#4647d3;   /* primary          */
+  --s:    #81ccff;   /* secondary-fixed-dim */
+  --t:    #ef6eff;   /* tertiary-fixed-dim */
+  --tdeep:#9e00b4;   /* tertiary         */
+  --ok:   #4ade80;
+  --warn: #fb923c;
+  --err:  #f74b6d;   /* error-container  */
+  --grad: linear-gradient(135deg,#4647d3 0%,#9396ff 50%,#9e00b4 100%);
+  --bg:   #0a0818;
+  --cbg:  rgba(147,150,255,.06);
+  --cb:   rgba(147,150,255,.18);
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100vw;height:100vh;overflow:hidden;background:var(--bg);
+  font-family:'Inter',sans-serif;-webkit-font-smoothing:antialiased}
+
+/* ─── KEYFRAMES ─── */
+@keyframes fadeIn    {from{opacity:0}to{opacity:1}}
+@keyframes fadeInUp  {from{opacity:0;transform:translateY(26px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeInDown{from{opacity:0;transform:translateY(-26px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeInL   {from{opacity:0;transform:translateX(26px)}to{opacity:1;transform:translateX(0)}}
+@keyframes fadeInR   {from{opacity:0;transform:translateX(-26px)}to{opacity:1;transform:translateX(0)}}
+@keyframes scaleIn   {from{opacity:0;transform:scale(.9)}to{opacity:1;transform:scale(1)}}
+@keyframes pulseGlow {0%,100%{box-shadow:0 0 18px rgba(74,222,128,.5),0 0 50px rgba(74,222,128,.15)}
+                      50%{box-shadow:0 0 36px rgba(74,222,128,.9),0 0 90px rgba(74,222,128,.35)}}
+@keyframes blink     {0%,100%{opacity:1}50%{opacity:0}}
+@keyframes typeOut   {from{width:0}to{width:22ch}}
+@keyframes drawBar   {from{width:0}to{width:var(--w,100%)}}
+@keyframes progFill  {from{width:0}to{width:72%}}
+@keyframes checkLine {from{stroke-dashoffset:var(--dl,30)}to{stroke-dashoffset:0}}
+@keyframes gradFlow  {0%{background-position:0 50%}50%{background-position:100% 50%}100%{background-position:0 50%}}
+@keyframes shimmer1  {0%{background-position:-300% center}100%{background-position:300% center}}
+@keyframes nameIn    {from{opacity:0;transform:translateY(10px) scale(.95)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes expandX   {from{width:0;opacity:0}to{width:100%;opacity:1}}
+@keyframes bigPulse  {0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.08);opacity:.7}}
+
+/* ─── SLIDE SYSTEM ─── */
+.slide{width:100vw;height:100vh;position:absolute;top:0;left:0;
+  display:none;overflow:hidden;background:var(--bg)}
+.slide.active{display:flex;animation:fadeIn .32s ease}
+
+/* Animation helpers — elements start invisible */
+[data-a]{opacity:0}
+/* Numeric = staggered fadeInUp */
+.is-v [data-a="1"]{animation:fadeInUp .55s .05s ease forwards}
+.is-v [data-a="2"]{animation:fadeInUp .55s .18s ease forwards}
+.is-v [data-a="3"]{animation:fadeInUp .55s .31s ease forwards}
+.is-v [data-a="4"]{animation:fadeInUp .55s .44s ease forwards}
+.is-v [data-a="5"]{animation:fadeInUp .55s .57s ease forwards}
+.is-v [data-a="6"]{animation:fadeInUp .55s .70s ease forwards}
+.is-v [data-a="7"]{animation:fadeInUp .55s .83s ease forwards}
+.is-v [data-a="8"]{animation:fadeInUp .55s .96s ease forwards}
+/* r = from right */
+.is-v [data-a="r1"]{animation:fadeInL .55s .05s ease forwards}
+.is-v [data-a="r2"]{animation:fadeInL .55s .22s ease forwards}
+.is-v [data-a="r3"]{animation:fadeInL .55s .39s ease forwards}
+.is-v [data-a="r4"]{animation:fadeInL .55s .56s ease forwards}
+/* l = from left */
+.is-v [data-a="l1"]{animation:fadeInR .55s .05s ease forwards}
+.is-v [data-a="l2"]{animation:fadeInR .55s .22s ease forwards}
+.is-v [data-a="l3"]{animation:fadeInR .55s .39s ease forwards}
+.is-v [data-a="l4"]{animation:fadeInR .55s .56s ease forwards}
+/* s = scale */
+.is-v [data-a="s1"]{animation:scaleIn .5s .05s ease forwards}
+.is-v [data-a="s2"]{animation:scaleIn .5s .22s ease forwards}
+.is-v [data-a="s3"]{animation:scaleIn .5s .39s ease forwards}
+/* f = flow nodes (longer stagger) */
+.is-v [data-a="f1"]{animation:scaleIn .45s .15s ease forwards}
+.is-v [data-a="f2"]{animation:scaleIn .45s .60s ease forwards}
+.is-v [data-a="f3"]{animation:scaleIn .45s 1.05s ease forwards}
+.is-v [data-a="f4"]{animation:scaleIn .45s 1.50s ease forwards}
+.is-v [data-a="f5"]{animation:scaleIn .45s 1.95s ease forwards}
+/* arrows in between */
+.is-v [data-a="a1"]{animation:fadeIn .3s .42s ease forwards}
+.is-v [data-a="a2"]{animation:fadeIn .3s .87s ease forwards}
+.is-v [data-a="a3"]{animation:fadeIn .3s 1.32s ease forwards}
+.is-v [data-a="a4"]{animation:fadeIn .3s 1.77s ease forwards}
+/* verdict card */
+.is-v .verdict-reveal{animation:fadeInUp .5s 1.7s ease forwards}
+/* progress bar */
+.is-v .pb-fill{animation:progFill 1.2s 1.1s ease forwards;width:0!important}
+/* SVG check */
+.is-v .chk-circle{animation:checkLine .5s .45s ease forwards}
+.is-v .chk-mark  {animation:checkLine .4s .75s ease forwards}
+/* risk bars */
+.is-v .rbar{animation:drawBar .8s ease forwards}
+/* name badges slide 10 */
+.is-v .nm:nth-child(1){animation:nameIn .5s .40s ease forwards}
+.is-v .nm:nth-child(2){animation:nameIn .5s .58s ease forwards}
+.is-v .nm:nth-child(3){animation:nameIn .5s .76s ease forwards}
+.is-v .nm:nth-child(4){animation:nameIn .5s .94s ease forwards}
+.is-v .nm:nth-child(5){animation:nameIn .5s 1.12s ease forwards}
+.is-v .nm-divider    {animation:expandX .6s 1.35s ease forwards}
+.is-v .nm-thanks     {animation:fadeIn   .6s 1.6s ease forwards}
+.is-v .nm-logo       {animation:scaleIn  .6s 1.9s ease forwards}
+/* shimmer on logo text (sign-off only) */
+.is-v .logo-shimmer{animation:shimmer1 2.8s 2.1s linear forwards}
+/* Bucket A checkmark reveal */
+.is-v .bucket-a{animation:scaleIn .5s .15s ease forwards}
+.is-v .bucket-b{animation:scaleIn .5s .40s ease forwards}
+.is-v .bucket-c{animation:scaleIn .5s .65s ease forwards}
+.is-v .bucket-d{animation:scaleIn .5s .90s ease forwards}
+
+/* ─── GRID BG ─── */
+.gbg{background-image:
+  linear-gradient(rgba(147,150,255,.04) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(147,150,255,.04) 1px,transparent 1px);
+  background-size:56px 56px}
+
+/* ─── CARD ─── */
+.card{background:var(--cbg);border:1px solid var(--cb);border-radius:14px}
+.card-p{border-color:rgba(147,150,255,.3);background:rgba(147,150,255,.07)}
+.card-s{border-color:rgba(129,204,255,.3);background:rgba(129,204,255,.07)}
+.card-t{border-color:rgba(239,110,255,.3);background:rgba(239,110,255,.07)}
+.card-ok{border-color:rgba(74,222,128,.3);background:rgba(74,222,128,.06)}
+.card-w{border-color:rgba(251,146,60,.3);background:rgba(251,146,60,.06)}
+.card-e{border-color:rgba(247,75,109,.3);background:rgba(247,75,109,.06)}
+
+/* ─── TYPOGRAPHY ─── */
+.mono{font-family:'JetBrains Mono',monospace}
+.sec-lbl{font-family:'JetBrains Mono',monospace;font-size:.95rem;letter-spacing:.24em;margin-bottom:1.25rem}
+.grad-text{background:var(--grad);background-size:200% 200%;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  animation:gradFlow 6s ease infinite}
+.tag{font-family:'JetBrains Mono',monospace;font-size:.7rem;letter-spacing:.06em;
+  padding:4px 11px;border-radius:5px;background:rgba(147,150,255,.14);
+  color:var(--p);border:1px solid rgba(147,150,255,.3)}
+
+/* ─── NAVIGATION ─── */
+#zp,#zn{position:fixed;top:0;height:100vh;z-index:9000;cursor:pointer}
+#zp{left:0;width:50vw}
+#zn{right:0;width:50vw}
+#ctr{position:fixed;bottom:1.25rem;right:1.75rem;z-index:9500;
+  font-family:'JetBrains Mono',monospace;font-size:.7rem;color:rgba(255,255,255,.22)}
+
+/* ─── TRANSITION OVERLAY ─── */
+#to{position:fixed;inset:0;z-index:8000;background:var(--bg);
+  opacity:0;pointer-events:none;transition:opacity .22s ease}
+#to.on{opacity:1;pointer-events:all}
+
+/* ─── DEMO TRANSITION ─── */
+#dt{position:fixed;inset:0;z-index:8500;background:#000;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .35s ease}
+#dt.on{opacity:1;pointer-events:all}
+#dt .dd{width:18px;height:18px;border-radius:50%;background:var(--ok);
+  box-shadow:0 0 28px rgba(74,222,128,.8);margin-bottom:1.5rem;
+  animation:pulseGlow 1s ease infinite}
+#dt .dtext{font-family:'JetBrains Mono',monospace;font-size:1.05rem;color:var(--ok);
+  letter-spacing:.14em;white-space:nowrap;overflow:hidden;width:0;
+  border-right:2px solid var(--ok);
+  animation:typeOut .9s .35s steps(22) forwards,blink .6s .35s step-end infinite}
+
+/* ─── PRODUCT MOCKUP (Slide 1) ─── */
+.browser{background:rgba(255,255,255,.05);border:1px solid rgba(147,150,255,.22);
+  border-radius:16px;overflow:hidden;width:330px}
+.bbar{background:rgba(147,150,255,.08);padding:.55rem .9rem;
+  display:flex;align-items:center;gap:.5rem;
+  border-bottom:1px solid rgba(147,150,255,.14)}
+.bd{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.bd-r{background:var(--err)}.bd-y{background:#fbbf24}.bd-g{background:var(--ok)}
+.burl{font-family:'JetBrains Mono',monospace;font-size:.65rem;
+  color:rgba(255,255,255,.3);margin-left:.6rem}
+.fitem{display:flex;align-items:center;gap:.5rem;padding:.45rem .6rem;
+  background:rgba(255,255,255,.04);border:1px solid rgba(147,150,255,.14);
+  border-radius:8px;font-size:.78rem;color:rgba(255,255,255,.72);margin-bottom:.4rem}
+.ficon{width:24px;height:24px;border-radius:5px;background:rgba(147,150,255,.18);
+  display:flex;align-items:center;justify-content:center;font-size:.7rem;
+  color:var(--p);flex-shrink:0}
+.fck{margin-left:auto;color:var(--ok);font-size:.8rem}
+.ptrack{height:6px;border-radius:3px;background:rgba(147,150,255,.12);overflow:hidden}
+.pb-fill{height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--pdeep),var(--p))}
+.verdict-reveal{opacity:0;margin-top:.75rem;padding:.75rem .9rem;border-radius:10px;
+  background:rgba(74,222,128,.09);border:1px solid rgba(74,222,128,.28);
+  display:flex;align-items:center;gap:.75rem}
+.vi{width:28px;height:28px;border-radius:50%;background:rgba(74,222,128,.2);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.9rem}
+.vl{font-size:.72rem;font-weight:700;color:var(--ok);letter-spacing:.07em}
+.va{font-size:.75rem;color:rgba(255,255,255,.55);margin-top:.1rem}
+
+/* triage mini */
+.triage-mini{width:330px;margin-top:.75rem;background:rgba(255,255,255,.04);
+  border:1px solid rgba(147,150,255,.18);border-radius:12px;padding:.9rem}
+.tr-row{display:flex;align-items:center;justify-content:space-between;
+  padding:.42rem .6rem;border-radius:7px;font-size:.78rem;margin-bottom:.35rem}
+.tr-row.a{background:rgba(74,222,128,.07);border:1px solid rgba(74,222,128,.18)}
+.tr-row.b{background:rgba(251,146,60,.07);border:1px solid rgba(251,146,60,.18)}
+.tr-badge{font-family:'JetBrains Mono',monospace;font-size:.62rem;
+  padding:2px 8px;border-radius:4px}
+.tr-badge.a{background:rgba(74,222,128,.2);color:var(--ok)}
+.tr-badge.b{background:rgba(251,146,60,.2);color:var(--warn)}
+
+/* ─── FLOW NODES (Slide 4) ─── */
+.fnode{display:flex;flex-direction:column;align-items:center;gap:.5rem;
+  text-align:center;min-width:120px}
+.fnode-icon{width:64px;height:64px;border-radius:18px;
+  display:flex;align-items:center;justify-content:center;font-size:1.8rem;
+  background:var(--cbg);border:2px solid var(--cb)}
+.farrow{font-size:1.5rem;color:rgba(147,150,255,.5);flex-shrink:0;
+  align-self:center;padding:0 .25rem}
+
+/* ─── RISK BARS (Slide 8) ─── */
+.ritem{display:flex;align-items:center;gap:1.1rem;margin-bottom:1rem}
+.rlbl{font-family:'JetBrains Mono',monospace;font-size:.88rem;font-weight:600;min-width:52px}
+.rtrack{flex:1;height:9px;border-radius:5px;background:rgba(255,255,255,.07);overflow:hidden}
+.rbar{height:100%;border-radius:5px;opacity:0}
+.rdesc{font-size:.88rem;color:rgba(255,255,255,.5);min-width:220px}
+
+/* ─── TIMELINE (Slide 9) ─── */
+.tl-item{display:flex;gap:1rem;align-items:flex-start;position:relative;padding-bottom:.9rem}
+.tl-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-top:5px}
+.tl-line{position:absolute;left:4px;top:15px;width:2px;height:calc(100% - 5px);
+  background:rgba(147,150,255,.15)}
+
+/* ─── SIGN-OFF (Slide 10) ─── */
+.nm{opacity:0;padding:.55rem 1.4rem;background:rgba(255,255,255,.06);
+  border:1px solid rgba(147,150,255,.22);border-radius:100px;
+  font-size:.95rem;font-weight:500;color:rgba(255,255,255,.88)}
+.nm-divider{opacity:0;width:0;height:1px;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.18),transparent)}
+.nm-thanks,.nm-logo{opacity:0}
+.logo-shimmer{background:linear-gradient(90deg,var(--p) 0%,#fff 30%,var(--t) 50%,var(--p) 100%);
+  background-size:300% auto;
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+
+/* ─── PRINT ─── */
+@media print{
+  @page{size:16in 9in landscape;margin:0}
+  html,body{width:16in;height:auto;overflow:visible}
+  .slide{display:flex!important;page-break-after:always;page-break-inside:avoid;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    width:16in;height:9in;position:relative;top:auto;left:auto}
+  #zp,#zn,#ctr,#to,#dt{display:none!important}
+  [data-a]{opacity:1!important;animation:none!important}
+  .pb-fill{width:72%!important;animation:none!important}
+  .verdict-reveal{opacity:1!important;animation:none!important}
+  .nm,.nm-divider,.nm-thanks,.nm-logo{opacity:1!important;animation:none!important}
+  .nm-divider{width:100%!important}
+  .rbar{opacity:1!important;animation:none!important}
+  .chk-circle,.chk-mark{stroke-dashoffset:0!important;animation:none!important}
+  .bucket-a,.bucket-b,.bucket-c,.bucket-d{opacity:1!important;animation:none!important}
+}
+</style>
+</head>
+<body>
+
+<div id="zp"></div>
+<div id="zn"></div>
+<div id="ctr">1 / 10</div>
+<div id="to"></div>
+<div id="dt"><div class="dd"></div><div class="dtext">[ INITIATING LIVE SESSION ]</div></div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 1 — TITLE  (two-column)
+══════════════════════════════════════════════ -->
+<div class="slide active gbg" id="s0" style="flex-direction:row;align-items:stretch;">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 30% 50%,rgba(70,71,211,.15) 0%,transparent 65%);pointer-events:none"></div>
+
+  <!-- LEFT -->
+  <div style="flex:1;display:flex;flex-direction:column;justify-content:center;padding:4rem 4rem 4rem 5rem;position:relative;z-index:10">
+    <div data-a="1" class="mono" style="color:var(--p);font-size:.95rem;letter-spacing:.3em;margin-bottom:1.5rem;opacity:0">UM HACKATHON 2026 &nbsp;·&nbsp; TEAM BOGOSORT</div>
+
+    <h1 data-a="2" style="opacity:0;font-size:7.5rem;font-weight:900;line-height:.9;letter-spacing:-.05em;color:#fff;margin-bottom:.75rem">
+      re<span class="grad-text">claim</span>
+    </h1>
+
+    <div data-a="3" style="opacity:0;width:64px;height:2px;margin:1.25rem 0;background:var(--grad)"></div>
+
+    <p data-a="4" style="opacity:0;font-size:1.15rem;color:rgba(255,255,255,.6);line-height:1.65;max-width:440px;margin-bottom:2rem">
+      AI-native expense reimbursement. HR effort mathematically bounded to
+      <span style="color:var(--p);font-weight:600">exceptions only.</span>
+    </p>
+
+    <div data-a="5" style="opacity:0;display:flex;gap:.65rem;flex-wrap:wrap">
+      <span class="tag">LangGraph</span>
+      <span class="tag">GLM-5.1</span>
+      <span class="tag">Llama 3.2 Vision</span>
+      <span class="tag">FastAPI</span>
+      <span class="tag">Next.js 16</span>
+      <span class="tag">PostgreSQL</span>
+    </div>
+  </div>
+
+  <!-- RIGHT — product illustration -->
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative;z-index:10;padding:2rem">
+    <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 60% 50%,rgba(158,0,180,.1) 0%,transparent 65%);pointer-events:none"></div>
+
+    <!-- Upload card -->
+    <div data-a="r1" style="opacity:0;position:relative;z-index:10">
+      <div class="browser">
+        <div class="bbar">
+          <span class="bd bd-r"></span><span class="bd bd-y"></span><span class="bd bd-g"></span>
+          <span class="burl">reclaim.app / upload</span>
+        </div>
+        <div style="padding:1rem">
+          <div style="font-size:.78rem;color:rgba(255,255,255,.4);margin-bottom:.6rem;font-family:'JetBrains Mono',monospace">MY RECEIPTS</div>
+          <div class="fitem"><div class="ficon">📄</div><span>hotel_kl.pdf</span><span class="fck">✓</span></div>
+          <div class="fitem"><div class="ficon">🖼</div><span>dinner_receipt.jpg</span><span class="fck">✓</span></div>
+          <div class="fitem"><div class="ficon">🖼</div><span>taxi_klcc.jpg</span><span class="fck">✓</span></div>
+          <!-- progress bar -->
+          <div style="margin-top:.75rem;padding:.65rem .75rem;background:rgba(147,150,255,.06);border:1px solid rgba(147,150,255,.15);border-radius:9px">
+            <div style="display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:.72rem;color:var(--p);margin-bottom:.4rem">
+              <span>AI Analyzing…</span><span style="color:rgba(255,255,255,.35)">3 / 3 ✓</span>
+            </div>
+            <div class="ptrack"><div class="pb-fill" style="width:72%"></div></div>
+          </div>
+          <!-- verdict -->
+          <div class="verdict-reveal">
+            <div class="vi">✓</div>
+            <div>
+              <div class="vl">PASSED AI REVIEW</div>
+              <div class="va">RM 2,450 approved · 94% confidence</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HR triage mini -->
+      <div class="triage-mini" data-a="r2" style="opacity:0">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:.7rem;color:rgba(255,255,255,.3);margin-bottom:.6rem">HR TRIAGE DASHBOARD</div>
+        <div class="tr-row a"><span style="color:rgba(255,255,255,.78)">Q1 Travel — Ahmad</span><span class="tr-badge a">PASSED</span></div>
+        <div class="tr-row b"><span style="color:rgba(255,255,255,.78)">Entertainment — Raj</span><span class="tr-badge b">FLAGGED</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 2 — THE PROBLEM
+══════════════════════════════════════════════ -->
+<div class="slide" id="s1" style="flex-direction:column;justify-content:center;padding:3.5rem 5.5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 15% 55%,rgba(247,75,109,.09) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1160px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--err)">01 / THE PROBLEM</div>
+
+    <div style="display:grid;grid-template-columns:1.1fr 1fr;gap:3rem;align-items:center">
+      <!-- LEFT: text + stats -->
+      <div>
+        <h2 data-a="2" style="opacity:0;font-size:3rem;font-weight:800;color:#fff;line-height:1.1;margin-bottom:2rem">
+          HR reviews <span style="color:var(--err)">100%</span> of claims.<br>
+          <span style="font-size:2rem;font-weight:500;color:rgba(255,255,255,.42)">Most don't need a human.</span>
+        </h2>
+
+        <div style="display:flex;flex-direction:column;gap:1rem">
+          <div data-a="3" class="card card-e" style="opacity:0;padding:1.1rem 1.4rem;display:flex;align-items:center;gap:1.25rem">
+            <div class="mono" style="font-size:2.8rem;font-weight:900;color:var(--err);line-height:1">5–10</div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">business-day turnaround<br>per claim — entirely manual</div>
+          </div>
+          <div data-a="4" class="card card-e" style="opacity:0;padding:1.1rem 1.4rem;display:flex;align-items:center;gap:1.25rem">
+            <div class="mono" style="font-size:2.8rem;font-weight:900;color:var(--err);line-height:1">100%</div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">of claims bottleneck<br>through one HR queue</div>
+          </div>
+          <div data-a="5" class="card card-e" style="opacity:0;padding:1.1rem 1.4rem;display:flex;align-items:center;gap:1.25rem">
+            <div class="mono" style="font-size:2.8rem;font-weight:900;color:var(--err);line-height:1">0</div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">fraud signals in the<br>legacy email workflow</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: visual bottleneck diagram -->
+      <div data-a="r1" style="opacity:0;display:flex;flex-direction:column;gap:1rem">
+        <div style="padding:1.4rem;background:rgba(247,75,109,.06);border:1px solid rgba(247,75,109,.2);border-radius:14px">
+          <div style="font-size:.88rem;font-weight:600;color:rgba(255,255,255,.75);margin-bottom:.6rem">The Old Workflow</div>
+          <!-- visual flow -->
+          <div style="display:flex;align-items:center;gap:.6rem;flex-wrap:wrap">
+            <div style="text-align:center;font-size:.78rem;color:rgba(255,255,255,.5)"><div style="font-size:1.8rem">🧑‍💼</div><div>Employee</div></div>
+            <div style="color:rgba(247,75,109,.6);font-size:1.1rem">→</div>
+            <div style="text-align:center;font-size:.78rem;color:rgba(255,255,255,.5)"><div style="font-size:1.8rem">📧</div><div>Email</div></div>
+            <div style="color:rgba(247,75,109,.6);font-size:1.1rem">→</div>
+            <div style="text-align:center;font-size:.78rem;color:rgba(255,255,255,.5)"><div style="font-size:1.8rem">📂</div><div>PDF Drive</div></div>
+            <div style="color:rgba(247,75,109,.6);font-size:1.1rem">→</div>
+            <div style="text-align:center;font-size:.78rem;color:var(--err)"><div style="font-size:1.8rem">😩</div><div style="font-weight:700">HR Queue</div></div>
+          </div>
+        </div>
+
+        <div style="padding:1.1rem 1.3rem;background:rgba(247,75,109,.06);border-left:3px solid var(--err);border-radius:0 10px 10px 0">
+          <div style="font-size:.95rem;color:rgba(255,255,255,.68);line-height:1.6">Policy in a <strong style="color:#fff">static PDF</strong> on a shared drive. Two reviewers, same claim → two different decisions.</div>
+        </div>
+        <div style="padding:1.1rem 1.3rem;background:rgba(247,75,109,.06);border-left:3px solid var(--err);border-radius:0 10px 10px 0">
+          <div style="font-size:.95rem;color:rgba(255,255,255,.68);line-height:1.6">Employees can inflate AI-extracted receipt amounts. <strong style="color:#fff">No system catches it.</strong></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 3 — THE SOLUTION
+══════════════════════════════════════════════ -->
+<div class="slide" id="s2" style="flex-direction:column;justify-content:center;padding:3.5rem 5.5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 80% 50%,rgba(70,71,211,.1) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1160px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--p)">02 / THE SOLUTION</div>
+    <h2 data-a="2" style="opacity:0;font-size:2.6rem;font-weight:800;color:#fff;line-height:1.1;margin-bottom:2rem">
+      Efficiency by Exception.<br>
+      <span style="font-size:1.5rem;font-weight:500;color:rgba(255,255,255,.42)">AI classifies every claim before HR opens a single case.</span>
+    </h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
+      <!-- Bucket A -->
+      <div class="card card-ok bucket-a" style="opacity:0;padding:1.4rem">
+        <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.9rem">
+          <!-- animated checkmark -->
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <circle cx="16" cy="16" r="14" stroke="#4ade80" stroke-width="1.8"
+              stroke-dasharray="88" class="chk-circle" style="--dl:88;stroke-dashoffset:88"/>
+            <polyline points="8,16 13,22 24,10" stroke="#4ade80" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round"
+              stroke-dasharray="28" class="chk-mark" style="--dl:28;stroke-dashoffset:28"/>
+          </svg>
+          <span class="mono" style="color:#4ade80;font-size:.92rem;letter-spacing:.1em;font-weight:600">BUCKET A — PASSED AI REVIEW</span>
+        </div>
+        <div style="font-size:.95rem;color:rgba(255,255,255,.65);line-height:1.6">High-confidence, zero-violation claims. HR fast-tracks with a full AI audit record attached. No manual policy lookup required.</div>
+      </div>
+
+      <!-- Bucket B -->
+      <div class="card card-w bucket-b" style="opacity:0;padding:1.4rem">
+        <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.9rem">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(251,146,60,.2);
+            display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">⚠</div>
+          <span class="mono" style="color:var(--warn);font-size:.92rem;letter-spacing:.1em;font-weight:600">BUCKET B — REQUIRES ATTENTION</span>
+        </div>
+        <div style="font-size:.95rem;color:rgba(255,255,255,.65);line-height:1.6">Flagged violations, partial approvals, employee edits. AI surfaces the exact policy clause breached — HR arrives with evidence, not a stack of attachments.</div>
+      </div>
+
+      <!-- Fraud Trap -->
+      <div class="card card-t bucket-c" style="opacity:0;padding:1.4rem">
+        <div style="display:flex;align-items:center;gap:.9rem;margin-bottom:.9rem">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(239,110,255,.2);
+            display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0">🔍</div>
+          <span class="mono" style="color:var(--t);font-size:.92rem;letter-spacing:.1em;font-weight:600">THE FRAUD TRAP</span>
+        </div>
+        <div style="font-size:.95rem;color:rgba(255,255,255,.65);line-height:1.6">Employee edits any AI-extracted field → system silently records deviation, assigns <span class="mono" style="color:var(--t);font-size:.9rem">HIGH / MEDIUM / LOW</span> risk. Permanent, immutable signal surfaced to HR before they open the claim.</div>
+      </div>
+
+      <!-- Quote -->
+      <div class="card bucket-d" style="opacity:0;padding:1.4rem;border-style:dashed;display:flex;align-items:center">
+        <p style="font-size:.95rem;color:rgba(255,255,255,.38);font-style:italic;line-height:1.7">"We don't replace HR. We give them a compliance analyst that processes every receipt against policy before they open a single case."</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 4 — SYSTEM ARCHITECTURE (animated pipeline)
+══════════════════════════════════════════════ -->
+<div class="slide gbg" id="s3" style="flex-direction:column;justify-content:center;padding:3rem 4rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(70,71,211,.09) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1200px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--p)">03 / SYSTEM ARCHITECTURE</div>
+    <h2 data-a="2" style="opacity:0;font-size:2rem;font-weight:800;color:#fff;margin-bottom:2.5rem">
+      From raw receipt to HR verdict — fully automated, fully auditable.
+    </h2>
+
+    <!-- Animated pipeline -->
+    <div style="display:flex;align-items:center;justify-content:center;gap:.25rem;margin-bottom:2.5rem;flex-wrap:nowrap">
+
+      <div data-a="f1" class="fnode" style="opacity:0">
+        <div class="fnode-icon" style="border-color:rgba(147,150,255,.4);background:rgba(147,150,255,.08)">📎</div>
+        <div style="font-size:.88rem;font-weight:700;color:#fff">Receipt</div>
+        <div style="font-size:.78rem;color:rgba(255,255,255,.42)">JPEG · PNG · PDF</div>
+      </div>
+
+      <div data-a="a1" class="farrow" style="opacity:0">›</div>
+
+      <div data-a="f2" class="fnode" style="opacity:0">
+        <div class="fnode-icon" style="border-color:rgba(129,204,255,.4);background:rgba(129,204,255,.08)">👁</div>
+        <div style="font-size:.88rem;font-weight:700;color:#fff">Document Agent</div>
+        <div style="font-size:.78rem;color:rgba(255,255,255,.42)">OCR · 4 parallel workers</div>
+      </div>
+
+      <div data-a="a2" class="farrow" style="opacity:0">›</div>
+
+      <div data-a="f3" class="fnode" style="opacity:0">
+        <div class="fnode-icon" style="border-color:rgba(239,110,255,.4);background:rgba(239,110,255,.08)">⚖</div>
+        <div style="font-size:.88rem;font-weight:700;color:#fff">Compliance Agent</div>
+        <div style="font-size:.78rem;color:rgba(255,255,255,.42)">ReAct · policy check</div>
+      </div>
+
+      <div data-a="a3" class="farrow" style="opacity:0">›</div>
+
+      <div data-a="f4" class="fnode" style="opacity:0">
+        <div class="fnode-icon" style="border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08)">🤖</div>
+        <div style="font-size:.88rem;font-weight:700;color:#fff">AI Verdict</div>
+        <div style="font-size:.78rem;color:rgba(255,255,255,.42)">APPROVE / FLAG / MANUAL</div>
+      </div>
+
+      <div data-a="a4" class="farrow" style="opacity:0">›</div>
+
+      <div data-a="f5" class="fnode" style="opacity:0">
+        <div class="fnode-icon" style="border-color:rgba(147,150,255,.4);background:rgba(147,150,255,.08)">🧑‍💼</div>
+        <div style="font-size:.88rem;font-weight:700;color:#fff">HR Decision</div>
+        <div style="font-size:.78rem;color:rgba(255,255,255,.42)">Final authority</div>
+      </div>
+    </div>
+
+    <!-- LLM services row -->
+    <div data-a="6" style="opacity:0;display:grid;grid-template-columns:repeat(4,1fr);gap:1rem">
+      <div class="card" style="padding:1rem">
+        <div class="mono" style="font-size:.72rem;color:rgba(255,255,255,.35);letter-spacing:.12em;margin-bottom:.45rem">PRIMARY LLM</div>
+        <div style="font-size:.95rem;font-weight:700;color:#fff;margin-bottom:.25rem">GLM-5.1</div>
+        <div style="font-size:.85rem;color:rgba(255,255,255,.45);line-height:1.45">ILMU API · policy extraction, compliance ReAct, PDF OCR</div>
+      </div>
+      <div class="card" style="padding:1rem">
+        <div class="mono" style="font-size:.72rem;color:rgba(255,255,255,.35);letter-spacing:.12em;margin-bottom:.45rem">VISION LLM</div>
+        <div style="font-size:.95rem;font-weight:700;color:#fff;margin-bottom:.25rem">Llama 3.2 Vision</div>
+        <div style="font-size:.85rem;color:rgba(255,255,255,.45);line-height:1.45">OpenRouter · image receipt OCR, base64 multimodal</div>
+      </div>
+      <div class="card" style="padding:1rem">
+        <div class="mono" style="font-size:.72rem;color:rgba(255,255,255,.35);letter-spacing:.12em;margin-bottom:.45rem">FALLBACK LLM</div>
+        <div style="font-size:.95rem;font-weight:700;color:#fff;margin-bottom:.25rem">Gemini Flash Lite</div>
+        <div style="font-size:.85rem;color:rgba(255,255,255,.45);line-height:1.45">Auto-switches if GLM-5.1 fails 15s health check</div>
+      </div>
+      <div class="card" style="padding:1rem">
+        <div class="mono" style="font-size:.72rem;color:rgba(255,255,255,.35);letter-spacing:.12em;margin-bottom:.45rem">OBSERVABILITY</div>
+        <div style="font-size:.95rem;font-weight:700;color:#fff;margin-bottom:.25rem">LangSmith</div>
+        <div style="font-size:.85rem;color:rgba(255,255,255,.45);line-height:1.45">Full trace per LLM call · project: um_hackathon</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 5 — THREE AGENT PIPELINES
+══════════════════════════════════════════════ -->
+<div class="slide" id="s4" style="flex-direction:column;justify-content:center;padding:3rem 4.5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 0%,rgba(158,0,180,.1) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1200px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--t)">04 / AGENTIC CORE — THREE LANGGRAPH PIPELINES</div>
+
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem">
+
+      <!-- Agent 1 -->
+      <div data-a="s1" class="card card-p" style="opacity:0;padding:1.6rem">
+        <div style="display:flex;align-items:center;gap:.85rem;margin-bottom:1.25rem">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(147,150,255,.18);
+            border:1px solid rgba(147,150,255,.35);display:flex;align-items:center;justify-content:center;
+            font-size:1.3rem;flex-shrink:0">📋</div>
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;color:#fff">Policy Agent</div>
+            <div class="mono" style="font-size:.78rem;color:rgba(255,255,255,.38);letter-spacing:.08em">4-NODE PIPELINE</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.55rem;margin-bottom:1.1rem">
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--p);font-size:.85rem">›</span>process_pdfs → markdown
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--p);font-size:.85rem">›</span>extract_categories_and_summary
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--p);font-size:.85rem">›</span>extract_conditions (JSON)
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--p);font-size:.85rem">›</span>save_to_db → ACTIVE policy
+          </div>
+        </div>
+        <div style="padding:.7rem .9rem;background:rgba(147,150,255,.1);border-radius:9px">
+          <div style="font-size:.88rem;color:var(--p);line-height:1.5">Structured conditions injected directly into compliance prompts. Zero retrieval latency.</div>
+        </div>
+      </div>
+
+      <!-- Agent 2 -->
+      <div data-a="s2" class="card card-s" style="opacity:0;padding:1.6rem">
+        <div style="display:flex;align-items:center;gap:.85rem;margin-bottom:1.25rem">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(129,204,255,.18);
+            border:1px solid rgba(129,204,255,.35);display:flex;align-items:center;justify-content:center;
+            font-size:1.3rem;flex-shrink:0">📸</div>
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;color:#fff">Document Agent</div>
+            <div class="mono" style="font-size:.78rem;color:rgba(255,255,255,.38);letter-spacing:.08em">PARALLEL OCR · ≤4 WORKERS</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.55rem;margin-bottom:1.1rem">
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--s);font-size:.85rem">›</span>Images → Llama 3.2 Vision
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--s);font-size:.85rem">›</span>PDFs → PyMuPDF → GLM-5.1
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--s);font-size:.85rem">›</span>ThreadPoolExecutor, ≤4 calls
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--s);font-size:.85rem">›</span>Extracts merchant, amount, flags
+          </div>
+        </div>
+        <div style="padding:.7rem .9rem;background:rgba(129,204,255,.1);border-radius:9px">
+          <div style="font-size:.88rem;color:var(--s);line-height:1.5">10 receipts run concurrently. Total time = slowest receipt, not the sum.</div>
+        </div>
+      </div>
+
+      <!-- Agent 3 -->
+      <div data-a="s3" class="card card-t" style="opacity:0;padding:1.6rem">
+        <div style="display:flex;align-items:center;gap:.85rem;margin-bottom:1.25rem">
+          <div style="width:44px;height:44px;border-radius:12px;background:rgba(239,110,255,.18);
+            border:1px solid rgba(239,110,255,.35);display:flex;align-items:center;justify-content:center;
+            font-size:1.3rem;flex-shrink:0">⚖</div>
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;color:#fff">Compliance Agent</div>
+            <div class="mono" style="font-size:.78rem;color:rgba(255,255,255,.38);letter-spacing:.08em">4-NODE REACT PIPELINE</div>
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.55rem;margin-bottom:1.1rem">
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--t);font-size:.85rem">›</span>load_context (user + policy + receipt)
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--t);font-size:.85rem">›</span>check_conditions (ReAct, ≤5 calls)
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--t);font-size:.85rem">›</span>build_judgment → APPROVE / FLAG
+          </div>
+          <div style="display:flex;gap:.65rem;align-items:baseline;font-size:.9rem;color:rgba(255,255,255,.62)">
+            <span class="mono" style="color:var(--t);font-size:.85rem">›</span>save_reimbursement + line_items
+          </div>
+        </div>
+        <div style="padding:.7rem .9rem;background:rgba(239,110,255,.1);border-radius:9px">
+          <div style="font-size:.88rem;color:var(--t);line-height:1.5">Any pipeline failure → MANUAL REVIEW. No claim is ever silently dropped.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 6 — LIVE DEMO
+══════════════════════════════════════════════ -->
+<div class="slide gbg" id="s5" style="flex-direction:column;align-items:center;justify-content:center">
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(74,222,128,.1) 0%,transparent 65%);pointer-events:none"></div>
+
+  <div style="position:relative;z-index:10;text-align:center">
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--ok);text-align:center">05 / EXECUTION</div>
+
+    <div style="display:flex;align-items:center;justify-content:center;gap:1.25rem;margin-bottom:1.25rem">
+      <div data-a="2" style="opacity:0;width:18px;height:18px;border-radius:50%;background:var(--ok);
+        box-shadow:0 0 28px rgba(74,222,128,.9);flex-shrink:0;
+        animation:pulseGlow 1.4s ease infinite"></div>
+      <h2 data-a="3" style="opacity:0;font-size:6rem;font-weight:900;letter-spacing:-.04em;color:#fff;line-height:1">LIVE</h2>
+    </div>
+
+    <p data-a="4" style="opacity:0;font-size:1.25rem;color:rgba(255,255,255,.4);margin-bottom:3.5rem">
+      Reclaim running end-to-end in production.
+    </p>
+
+    <div data-a="5" style="opacity:0;display:flex;gap:3rem;justify-content:center;align-items:center">
+      <div>
+        <div class="mono" style="color:rgba(255,255,255,.28);font-size:.85rem;letter-spacing:.2em;margin-bottom:.4rem">EMPLOYEE PORTAL</div>
+        <div style="font-size:1rem;color:rgba(255,255,255,.65)">Upload → Verify → Submit</div>
+      </div>
+      <div style="width:1px;height:48px;background:rgba(255,255,255,.1)"></div>
+      <div>
+        <div class="mono" style="color:rgba(255,255,255,.28);font-size:.85rem;letter-spacing:.2em;margin-bottom:.4rem">AI PIPELINE</div>
+        <div style="font-size:1rem;color:rgba(255,255,255,.65)">OCR → Compliance → Verdict</div>
+      </div>
+      <div style="width:1px;height:48px;background:rgba(255,255,255,.1)"></div>
+      <div>
+        <div class="mono" style="color:rgba(255,255,255,.28);font-size:.85rem;letter-spacing:.2em;margin-bottom:.4rem">HR PORTAL</div>
+        <div style="font-size:1rem;color:rgba(255,255,255,.65)">Triage → Review → Decide</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 7 — TWO PORTALS (UI recap)
+══════════════════════════════════════════════ -->
+<div class="slide" id="s6" style="flex-direction:column;justify-content:center;padding:3rem 5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 25% 80%,rgba(74,222,128,.07) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1160px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--ok)">06 / UI — TWO ROLE-ISOLATED PORTALS</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2.5rem">
+      <!-- Employee -->
+      <div>
+        <div data-a="l1" style="opacity:0;display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--ok);flex-shrink:0"></div>
+          <h3 style="font-size:1.2rem;font-weight:700;color:#fff">Employee Portal</h3>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.9rem">
+          <div data-a="l2" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--ok);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">📤</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Claim Submission Wizard</div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">Category select → drag-and-drop upload → real-time OCR status per file</div>
+          </div>
+          <div data-a="l3" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--t);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">🔍</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Side-by-Side Verification <span style="color:var(--t);font-size:.85rem">(Fraud Trap)</span></div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">AI form (left) + original document (right). Any edit writes to audit trail immediately.</div>
+          </div>
+          <div data-a="l4" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--ok);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">📊</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Status Dashboard + Claim History</div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">PENDING · APPROVED · PARTIAL · REJECTED with per-receipt AI reasoning inline</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- HR -->
+      <div>
+        <div data-a="r1" style="opacity:0;display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--p);flex-shrink:0"></div>
+          <h3 style="font-size:1.2rem;font-weight:700;color:#fff">HR Portal</h3>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.9rem">
+          <div data-a="r2" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--p);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">📋</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Policy Studio</div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">Upload PDF → AI extracts categories + conditions → HR confirms → status: ACTIVE</div>
+          </div>
+          <div data-a="r3" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--warn);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">🎯</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Triage Dashboard</div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">Bucket A (Passed) separated from Bucket B (Attention). HR opens only what needs a human.</div>
+          </div>
+          <div data-a="r4" style="opacity:0;padding:1rem 1.2rem;background:rgba(255,255,255,.03);border-left:3px solid var(--p);border-radius:0 10px 10px 0">
+            <div style="display:flex;align-items:center;gap:.65rem;margin-bottom:.35rem">
+              <span style="font-size:1.1rem">✅</span>
+              <div style="font-size:.95rem;font-weight:600;color:#fff">Decision Engine</div>
+            </div>
+            <div style="font-size:.9rem;color:rgba(255,255,255,.5);line-height:1.5">Full audit trail · Force Approve · Approve Adjusted · Confirm Rejection · HR Note</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 8 — FRAUD TRAP MECHANICS
+══════════════════════════════════════════════ -->
+<div class="slide" id="s7" style="flex-direction:column;justify-content:center;padding:3rem 5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 75% 30%,rgba(158,0,180,.1) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1160px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--t)">07 / UNDER THE HOOD — FRAUD TRAP MECHANICS</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:2.5rem;align-items:start">
+      <!-- Left: heading + risk bars -->
+      <div>
+        <h2 data-a="2" style="opacity:0;font-size:2rem;font-weight:800;color:#fff;line-height:1.25;margin-bottom:1.75rem">
+          A permanent, immutable fraud signal baked into every submission.
+        </h2>
+
+        <div data-a="3" style="opacity:0">
+          <div class="ritem">
+            <span class="rlbl" style="color:var(--err)">HIGH</span>
+            <div class="rtrack"><div class="rbar" style="--w:92%;background:var(--err);animation-delay:.1s"></div></div>
+            <span class="rdesc">Amount multiplied significantly. Mandatory HR flag.</span>
+          </div>
+          <div class="ritem">
+            <span class="rlbl" style="color:#fbbf24">MED</span>
+            <div class="rtrack"><div class="rbar" style="--w:65%;background:#fbbf24;animation-delay:.25s"></div></div>
+            <span class="rdesc">Amount increased above AI extraction.</span>
+          </div>
+          <div class="ritem">
+            <span class="rlbl" style="color:var(--ok)">LOW</span>
+            <div class="rtrack"><div class="rbar" style="--w:35%;background:var(--ok);animation-delay:.4s"></div></div>
+            <span class="rdesc">Minor field edits. Logged, not flagged.</span>
+          </div>
+          <div class="ritem">
+            <span class="rlbl" style="color:rgba(255,255,255,.28)">NONE</span>
+            <div class="rtrack"><div class="rbar" style="--w:8%;background:rgba(255,255,255,.25);animation-delay:.55s"></div></div>
+            <span class="rdesc">No edits. Clean audit record.</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: code block + note -->
+      <div>
+        <div data-a="r1" class="card" style="opacity:0;padding:1.5rem;background:rgba(0,0,0,.45);margin-bottom:1rem">
+          <div class="mono" style="font-size:.72rem;color:rgba(255,255,255,.3);letter-spacing:.12em;margin-bottom:.85rem">CHANGE_SUMMARY JSONB — WRITTEN ON EDIT</div>
+          <pre style="font-family:'JetBrains Mono',monospace;font-size:.82rem;color:var(--t);line-height:1.8;white-space:pre">{
+  "has_changes": true,
+  "overall_risk": "HIGH",
+  "changes_by_field": {
+    "total_amount": {
+      "original":  85.00,
+      "edited":   850.00,
+      "delta_pct": 900
+    }
+  }
+}</pre>
+        </div>
+
+        <div data-a="r2" style="opacity:0;padding:1rem 1.2rem;background:rgba(239,110,255,.07);
+          border:1px solid rgba(239,110,255,.22);border-radius:10px">
+          <div style="font-size:.92rem;color:rgba(255,255,255,.55);line-height:1.6">
+            This record is <strong style="color:var(--t)">permanent and immutable.</strong> HR sees the original AI value vs. what the employee submitted — field by field — before they open the claim.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 9 — MVP SCOPE & ROADMAP
+══════════════════════════════════════════════ -->
+<div class="slide" id="s8" style="flex-direction:column;justify-content:center;padding:3.5rem 5.5rem">
+  <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 50% 110%,rgba(70,71,211,.09) 0%,transparent 60%);pointer-events:none"></div>
+  <div style="position:relative;z-index:10;max-width:1100px;margin:0 auto;width:100%">
+
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:var(--p)">08 / MVP SCOPE &amp; IMMEDIATE ROADMAP</div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:3.5rem">
+      <!-- Shipped -->
+      <div>
+        <div data-a="l1" style="opacity:0;display:flex;align-items:center;gap:.75rem;margin-bottom:1.4rem">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--ok);flex-shrink:0"></div>
+          <h3 style="font-size:1.15rem;font-weight:700;color:#fff">Shipped in 10 Days</h3>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:.75rem">
+          <div data-a="l2" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">Multi-receipt parallel OCR (up to 10 files)</span>
+          </div>
+          <div data-a="l2" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">Fraud Trap with immutable change_summary JSONB</span>
+          </div>
+          <div data-a="l3" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">Policy Studio — PDF → structured conditions</span>
+          </div>
+          <div data-a="l3" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">ReAct compliance evaluation with confidence score</span>
+          </div>
+          <div data-a="l4" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">Efficiency by Exception triage dashboard</span>
+          </div>
+          <div data-a="l4" style="opacity:0;display:flex;gap:.9rem;align-items:center;padding:.7rem 1rem;background:rgba(74,222,128,.05);border:1px solid rgba(74,222,128,.15);border-radius:9px">
+            <span style="color:var(--ok);font-size:1rem;flex-shrink:0">✓</span>
+            <span style="font-size:.95rem;color:rgba(255,255,255,.7)">GLM-5.1 → Gemini fallback via health check</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Roadmap -->
+      <div>
+        <div data-a="r1" style="opacity:0;display:flex;align-items:center;gap:.75rem;margin-bottom:1.4rem">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--p);flex-shrink:0"></div>
+          <h3 style="font-size:1.15rem;font-weight:700;color:#fff">Post-Hackathon Integrations</h3>
+        </div>
+        <div style="display:flex;flex-direction:column">
+          <div data-a="r2" class="tl-item" style="opacity:0">
+            <div class="tl-line"></div>
+            <div class="tl-dot" style="background:var(--p)"></div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5;padding-bottom:.3rem">
+              <strong style="color:rgba(255,255,255,.8)">Auto PDF generation</strong> on HR approval — endpoint built, event trigger not wired yet
+            </div>
+          </div>
+          <div data-a="r2" class="tl-item" style="opacity:0">
+            <div class="tl-line"></div>
+            <div class="tl-dot" style="background:var(--p)"></div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">
+              <strong style="color:rgba(255,255,255,.8)">Policy condition editing UI</strong> — currently requires PDF re-upload
+            </div>
+          </div>
+          <div data-a="r3" class="tl-item" style="opacity:0">
+            <div class="tl-line"></div>
+            <div class="tl-dot" style="background:var(--s)"></div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">
+              <strong style="color:rgba(255,255,255,.8)">Async job queue</strong> (Celery + Redis) to decouple compliance from request lifecycle
+            </div>
+          </div>
+          <div data-a="r3" class="tl-item" style="opacity:0">
+            <div class="tl-line"></div>
+            <div class="tl-dot" style="background:var(--s)"></div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">
+              <strong style="color:rgba(255,255,255,.8)">Push notifications</strong> on claim state transitions (Slack / email)
+            </div>
+          </div>
+          <div data-a="r4" class="tl-item" style="opacity:0">
+            <div style="width:0"></div>
+            <div class="tl-dot" style="background:rgba(255,255,255,.2)"></div>
+            <div style="font-size:.95rem;color:rgba(255,255,255,.55);line-height:1.5">
+              <strong style="color:rgba(255,255,255,.8)">Admin portal</strong> for company onboarding and user management
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SLIDE 10 — SIGN-OFF
+══════════════════════════════════════════════ -->
+<div class="slide gbg" id="s9" style="flex-direction:column;align-items:center;justify-content:center">
+  <div style="position:absolute;inset:0;background:radial-gradient(circle at 50% 60%,rgba(158,0,180,.1) 0%,transparent 65%);pointer-events:none"></div>
+
+  <div style="position:relative;z-index:10;text-align:center;max-width:700px">
+    <div data-a="1" class="sec-lbl" style="opacity:0;color:rgba(255,255,255,.28);text-align:center">09 / THE TEAM</div>
+    <div data-a="2" class="mono" style="opacity:0;color:var(--p);font-size:1rem;letter-spacing:.22em;margin-bottom:1.5rem">TEAM BOGOSORT</div>
+
+    <!-- Names — staggered via CSS on .nm -->
+    <div style="display:flex;flex-wrap:wrap;gap:.9rem;justify-content:center;margin-bottom:2.75rem">
+      <span class="nm">Darrell</span>
+      <span class="nm">Filbert</span>
+      <span class="nm">Christian</span>
+      <span class="nm">Michael</span>
+      <span class="nm">Chingiz</span>
+    </div>
+
+    <div class="nm-divider" style="margin:0 auto 2rem"></div>
+
+    <div class="nm-thanks" style="font-size:1.5rem;font-weight:700;color:#fff;margin-bottom:.6rem">Thank you.</div>
+    <div class="nm-thanks" style="font-size:.95rem;color:rgba(255,255,255,.36);line-height:1.7">
+      Built in 10 days for UMHackathon 2026.<br>
+      Every claim: AI-analyzed, policy-grounded, permanently auditable.
+    </div>
+
+    <div class="nm-logo" style="margin-top:2.5rem">
+      <span class="logo-shimmer" style="font-size:4rem;font-weight:900;letter-spacing:-.04em">reclaim</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════
+     SCRIPT
+══════════════════════════════════════════════ -->
+<script>
+(function(){
+  var cur   = 0;
+  var slides = document.querySelectorAll('.slide');
+  var ctr   = document.getElementById('ctr');
+  var to    = document.getElementById('to');
+  var dt    = document.getElementById('dt');
+  var total = slides.length;
+  var busy  = false;
+
+  function activate(n){
+    slides[cur].classList.remove('active','is-v');
+    cur = n;
+    slides[cur].classList.add('active');
+    // Two rAFs ensure the slide is painted before animating
+    requestAnimationFrame(function(){
+      requestAnimationFrame(function(){
+        slides[cur].classList.add('is-v');
+      });
+    });
+    ctr.textContent = (cur+1)+' / '+total;
+  }
+
+  function go(n){
+    if(busy||n<0||n>=total||n===cur) return;
+
+    // Special demo transition: only going FORWARD into slide index 5
+    if(n===5 && cur===4){
+      busy = true;
+      dt.classList.add('on');
+      setTimeout(function(){
+        activate(n);
+        setTimeout(function(){
+          dt.classList.remove('on');
+          busy = false;
+        }, 400);
+      }, 1500);
+      return;
+    }
+
+    busy = true;
+    to.classList.add('on');
+    setTimeout(function(){
+      activate(n);
+      to.classList.remove('on');
+      setTimeout(function(){ busy=false; }, 300);
+    }, 220);
+  }
+
+  document.getElementById('zn').addEventListener('click', function(){ go(cur+1); });
+  document.getElementById('zp').addEventListener('click', function(){ go(cur-1); });
+
+  document.addEventListener('keydown', function(e){
+    if(e.key==='ArrowRight'||e.key==='ArrowDown'||e.key===' '){ e.preventDefault(); go(cur+1); }
+    if(e.key==='ArrowLeft' ||e.key==='ArrowUp')               { e.preventDefault(); go(cur-1); }
+  });
+
+  // Kick off initial slide animations
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){
+      slides[0].classList.add('is-v');
+    });
+  });
+  ctr.textContent = '1 / '+total;
+})();
+</script>
+</body>
+</html>

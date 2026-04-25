@@ -50,6 +50,21 @@ _READABILITY_FIELDS = [
 # JSON extraction helper
 # ---------------------------------------------------------------------------
 
+def _normalize_llm_content(content) -> str:
+    """Flatten LangChain content that may be a list of content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n".join(parts)
+    return str(content)
+
+
 def _extract_json_object(text: str) -> dict:
     """Extract the first complete JSON object from text that may contain surrounding prose."""
     stripped = re.sub(r"```(?:json)?\s*", "", text).strip()
@@ -119,7 +134,7 @@ def _ocr_image(file_path: str, prompt: str) -> dict:
     response = get_vision_llm().invoke([message])
     logger.info("[OCR_IMAGE] LLM responded for %s, content type=%s", file_path, type(response.content).__name__)
     try:
-        extracted = _extract_json_object(response.content)
+        extracted = _extract_json_object(_normalize_llm_content(response.content))
         logger.info("[OCR_IMAGE] Successfully extracted JSON for %s: merchant=%s amount=%s", file_path, extracted.get("merchant_name"), extracted.get("total_amount"))
         return extracted
     except Exception as e:
@@ -141,7 +156,7 @@ def _ocr_pdf(file_path: str, prompt: str) -> dict:
     response = get_text_llm().invoke([HumanMessage(content=full_prompt)])
     logger.info("[OCR_PDF] LLM responded for %s, content type=%s", file_path, type(response.content).__name__)
     try:
-        extracted = _extract_json_object(response.content)
+        extracted = _extract_json_object(_normalize_llm_content(response.content))
         logger.info("[OCR_PDF] Successfully extracted JSON for %s: merchant=%s amount=%s", file_path, extracted.get("merchant_name"), extracted.get("total_amount"))
         return extracted
     except Exception as e:
