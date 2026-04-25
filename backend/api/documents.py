@@ -1,11 +1,17 @@
+import asyncio
+import concurrent.futures
+import json
+import logging
 from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
 
 import aiofiles
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from sqlmodel import Session, select
+
+from engine.progress import ProgressTracker
 
 from api import deps
 from api.schemas import DocumentChangeLogResponse, DocumentFieldEditRequest, SupportingDocumentListItem
@@ -14,11 +20,11 @@ from core.models import (
     SettlementCategory, DocumentChangeLog, User as Employee
 )
 from core.enums import UserRole
-from engine.agents.document_agent import process_receipts
 from engine.tools.change_detector import detect_changes, EDITABLE_FIELDS
 from engine.tools.generate_reimbursement_template import generate_reimbursement_template
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 STORAGE_DOCUMENTS_DIR = Path(__file__).parent.parent / "storage" / "documents"
 
@@ -62,6 +68,7 @@ async def upload_documents(
 ) -> dict:
     """Upload one or more receipt files (images or PDFs) for parallel OCR processing."""
     user_id_str = str(current_user.user_id)
+    logger.info("[API_UPLOAD] Received %d files from user=%s", len(files), user_id_str)
     user_dir = STORAGE_DOCUMENTS_DIR / user_id_str
     user_dir.mkdir(parents=True, exist_ok=True)
 
@@ -80,12 +87,69 @@ async def upload_documents(
             "file_type": file_type,
             "document_name": fname,
         })
+        logger.info("[API_UPLOAD] Saved file: %s (type=%s)", fname, file_type)
 
-    return process_receipts(
-        files=file_infos,
-        user_id=user_id_str,
-        employee_name=current_user.name,
-        session=db,
+    tracker = ProgressTracker()
+    task_id = tracker.create_task()
+    logger.info("[API_UPLOAD] Created task_id=%s", task_id)
+
+    employee_name = current_user.name
+
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    def _process_background():
+        logger.info("[API_UPLOAD_BG] Starting background processing for task=%s", task_id)
+        from sqlmodel import Session as _Session
+        from core.database import engine as _engine
+        from engine.agents.document_agent import process_receipts as _process
+
+        with _Session(_engine) as bg_db:
+            def progress_callback(stage: str, data: dict):
+                logger.info("[API_UPLOAD_BG] task=%s stage=%s data=%s", task_id, stage, data)
+                tracker.publish(task_id, stage, data)
+
+            try:
+                _process(
+                    files=file_infos,
+                    user_id=user_id_str,
+                    employee_name=employee_name,
+                    session=bg_db,
+                    progress_callback=progress_callback,
+                )
+            except Exception as e:
+                logger.exception("[API_UPLOAD_BG] Background processing failed for task=%s", task_id)
+                tracker.publish(task_id, "error", {"message": str(e)})
+
+    executor.submit(_process_background)
+
+    logger.info("[API_UPLOAD] Returning task_id=%s", task_id)
+    return {"task_id": task_id}
+
+
+@router.get("/progress/{task_id}")
+async def document_progress(task_id: str):
+    """SSE endpoint: stream progress events for a document processing task."""
+    logger.info("[API_SSE] Client connected to documents/progress/%s", task_id)
+    tracker = ProgressTracker()
+
+    async def event_generator():
+        try:
+            async for event_str in tracker.subscribe(task_id):
+                logger.info("[API_SSE] Streaming event for task=%s: %s", task_id, event_str.strip().replace("\n", " "))
+                yield event_str
+        except asyncio.CancelledError:
+            logger.info("[API_SSE] Client disconnected from task=%s", task_id)
+        finally:
+            asyncio.create_task(tracker.cleanup(task_id))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
     )
 
 

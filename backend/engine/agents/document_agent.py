@@ -2,6 +2,7 @@ import re
 import json
 import base64
 import concurrent.futures
+import logging
 from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
@@ -18,6 +19,8 @@ from core.models import (
 from engine.llm import get_vision_llm, get_text_llm
 from engine.prompts.document_prompts import RECEIPT_OCR_PROMPT, RECEIPT_OCR_PROMPT_WITH_CATEGORIES
 from engine.tools.generate_reimbursement_template import generate_reimbursement_template  # noqa: F401 (re-exported)
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Category -> expense column keyword sets
@@ -100,6 +103,7 @@ def _build_prompt(categories: List[str]) -> str:
 
 def _ocr_image(file_path: str, prompt: str) -> dict:
     """Vision LLM path for image receipts."""
+    logger.info("[OCR_IMAGE] Starting OCR for image: %s", file_path)
     with open(file_path, "rb") as f:
         image_bytes = f.read()
 
@@ -113,27 +117,35 @@ def _ocr_image(file_path: str, prompt: str) -> dict:
         {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_str}"}},
     ])
     response = get_vision_llm().invoke([message])
+    logger.info("[OCR_IMAGE] LLM responded for %s, content type=%s", file_path, type(response.content).__name__)
     try:
-        return _extract_json_object(response.content)
+        extracted = _extract_json_object(response.content)
+        logger.info("[OCR_IMAGE] Successfully extracted JSON for %s: merchant=%s amount=%s", file_path, extracted.get("merchant_name"), extracted.get("total_amount"))
+        return extracted
     except Exception as e:
-        print(f"Failed to parse image OCR response: {e}")
+        logger.error("[OCR_IMAGE] Failed to parse image OCR response for %s: %s", file_path, e)
         return {}
 
 
 def _ocr_pdf(file_path: str, prompt: str) -> dict:
     """Standard text LLM path for PDF receipts — extracts markdown then queries LLM."""
+    logger.info("[OCR_PDF] Starting OCR for PDF: %s", file_path)
     try:
         md_text = pymupdf4llm.to_markdown(file_path)
+        logger.info("[OCR_PDF] Extracted %d chars of markdown from %s", len(md_text), file_path)
     except Exception as e:
-        print(f"Failed to extract PDF text from {file_path}: {e}")
+        logger.error("[OCR_PDF] Failed to extract PDF text from %s: %s", file_path, e)
         return {}
 
     full_prompt = f"{prompt}\n\nDocument Text:\n{md_text[:8000]}"
     response = get_text_llm().invoke([HumanMessage(content=full_prompt)])
+    logger.info("[OCR_PDF] LLM responded for %s, content type=%s", file_path, type(response.content).__name__)
     try:
-        return _extract_json_object(response.content)
+        extracted = _extract_json_object(response.content)
+        logger.info("[OCR_PDF] Successfully extracted JSON for %s: merchant=%s amount=%s", file_path, extracted.get("merchant_name"), extracted.get("total_amount"))
+        return extracted
     except Exception as e:
-        print(f"Failed to parse PDF OCR response: {e}")
+        logger.error("[OCR_PDF] Failed to parse PDF OCR response for %s: %s", file_path, e)
         return {}
 
 
@@ -212,6 +224,7 @@ def _process_single_receipt_llm(
     employee_name: str,
     categories: List[str],
 ) -> dict:
+    logger.info("[PROCESS_RECEIPT] Processing %s (type=%s)", document_name, file_type)
     prompt = _build_prompt(categories)
     is_pdf = file_type == "pdf"
 
@@ -221,6 +234,11 @@ def _process_single_receipt_llm(
     category = extracted_data.get("category") or "No Reimbursement Policy for this receipt"
     amount = float(extracted_data.get("total_amount") or 0)
     col = _map_category_to_column(category)
+
+    logger.info(
+        "[PROCESS_RECEIPT] Result for %s: category=%s amount=%s col=%s warnings=%s",
+        document_name, category, amount, col, warnings,
+    )
 
     return {
         "file_path": file_path,
@@ -287,6 +305,7 @@ def process_receipts(
     employee_name: str,
     session: Session,
     policies_db: Optional[List[str]] = None,
+    progress_callback=None,
 ) -> dict:
     """
     Process a list of receipt files.
@@ -296,11 +315,14 @@ def process_receipts(
 
     Returns aggregated_results dict ready for generate_reimbursement_template().
     """
+    logger.info("[PROCESS_RECEIPTS] Called with %d files for user=%s", len(files), user_id)
     categories = policies_db if policies_db is not None else _get_active_categories(session)
+    logger.info("[PROCESS_RECEIPTS] Categories: %s", categories)
 
     # Parallel LLM calls (no session access in workers)
     llm_results: List[dict] = []
     max_workers = min(len(files), 4) if files else 1
+    logger.info("[PROCESS_RECEIPTS] Launching parallel OCR with %d workers", max_workers)
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(
@@ -316,9 +338,16 @@ def process_receipts(
         for future in concurrent.futures.as_completed(futures):
             try:
                 llm_results.append(future.result())
+                logger.info("[PROCESS_RECEIPTS] Completed %d/%d files", len(llm_results), len(files))
+                if progress_callback:
+                    progress_callback("ocr_processing", {
+                        "current": len(llm_results),
+                        "total": len(files),
+                        "filename": llm_results[-1].get("document_name", ""),
+                    })
             except Exception as e:
                 orig = futures[future]
-                print(f"Error processing {orig['file_path']}: {e}")
+                logger.error("[PROCESS_RECEIPTS] Error processing %s: %s", orig['file_path'], e)
                 llm_results.append({
                     "file_path": orig["file_path"],
                     "file_type": orig.get("file_type", "image"),
@@ -332,6 +361,7 @@ def process_receipts(
 
     # Serial DB writes — save all receipts as SupportingDocuments
     document_ids: List[str] = []
+    logger.info("[PROCESS_RECEIPTS] Saving %d SupportingDocuments", len(llm_results))
     for r in llm_results:
         relative_path = f"/storage/documents/{user_id}/{Path(r['file_path']).name}"
         doc = SupportingDocument(
@@ -345,6 +375,7 @@ def process_receipts(
         session.flush()
         r["document_id"] = str(doc.document_id)
         document_ids.append(str(doc.document_id))
+        logger.info("[PROCESS_RECEIPTS] Saved doc_id=%s for %s", r["document_id"], r["document_name"])
 
     user = session.exec(select(User).where(User.user_id == UUID(user_id))).first()
     user_code = user.user_code if user and user.user_code else ""
@@ -407,14 +438,17 @@ def process_receipts(
 
         if r["warnings"]:
             skipped_receipts.append(receipt_entry)
+            logger.info("[PROCESS_RECEIPTS] Skipped receipt %s due to warnings: %s", r["document_name"], r["warnings"])
         else:
             totals[col] += amt
             receipts.append(receipt_entry)
+            logger.info("[PROCESS_RECEIPTS] Included receipt %s in settlement (category=%s, amount=%s)", r["document_name"], r["category"], amt)
 
     totals["grand_total"] = sum(totals[k] for k in ["transportation", "accommodation", "meals", "others"])
     totals["currency"] = currency
 
     all_warnings = [w for r in llm_results for w in r.get("warnings", [])]
+    logger.info("[PROCESS_RECEIPTS] Settlement totals: %s, included_receipts=%d, skipped_receipts=%d", totals, len(receipts), len(skipped_receipts))
 
     # Collect unique categories (no duplicates, exclude no-policy sentinel)
     _no_policy = "No Reimbursement Policy for this receipt"
@@ -465,6 +499,7 @@ def process_receipts(
     )
     session.add(settlement)
     session.flush()
+    logger.info("[PROCESS_RECEIPTS] Created TravelSettlement settlement_id=%s", settlement.settlement_id)
 
     # Bulk insert SettlementCategory rows
     for cat in all_category:
@@ -473,8 +508,10 @@ def process_receipts(
             category=cat,
         )
         session.add(sc)
+    logger.info("[PROCESS_RECEIPTS] Saved %d SettlementCategories", len(all_category))
 
     # Bulk insert SettlementReceipt rows
+    receipt_count = 0
     for r in receipts + skipped_receipts:
         doc_id_str = r.get("document_id", "")
         doc_uuid = UUID(doc_id_str) if doc_id_str else None
@@ -488,6 +525,8 @@ def process_receipts(
             currency=currency,
         )
         session.add(sr)
+        receipt_count += 1
+    logger.info("[PROCESS_RECEIPTS] Saved %d SettlementReceipts", receipt_count)
 
     # Link all SupportingDocuments to this settlement
     doc_uuid_list = [UUID(did) for did in document_ids]
@@ -497,11 +536,16 @@ def process_receipts(
     for doc in docs:
         doc.settlement_id = settlement.settlement_id
         session.add(doc)
+    logger.info("[PROCESS_RECEIPTS] Linked %d SupportingDocuments to settlement", len(docs))
+
+    if progress_callback:
+        progress_callback("saving", {"message": "Saving settlement to database..."})
 
     session.commit()
     session.refresh(settlement)
+    logger.info("[PROCESS_RECEIPTS] Committed settlement settlement_id=%s", settlement.settlement_id)
 
-    return {
+    result = {
         "settlement_id": str(settlement.settlement_id),
         "document_ids": document_ids,
         "employee": employee_context,
@@ -512,6 +556,12 @@ def process_receipts(
         "all_category": all_category,
         "main_category": main_category,
     }
+
+    if progress_callback:
+        progress_callback("complete", result)
+
+    logger.info("[PROCESS_RECEIPTS] Returning result with settlement_id=%s", result["settlement_id"])
+    return result
 
 
 # ---------------------------------------------------------------------------

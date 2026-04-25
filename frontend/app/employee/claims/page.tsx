@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   FileText,
@@ -38,15 +38,14 @@ import { SuccessModal, type SuccessType } from "./_components/SuccessModal";
 // ─── Server Actions ───────────────────────────────────────────────────────────
 import { getPolicies } from "@/lib/actions/policies";
 import { uploadDocuments, editDocument, analyzeCompliance } from "@/lib/actions/claims";
-import type { Policy, SubCategoryConfig, AnalyzeResponse } from "@/lib/api/types";
+import type { Policy, SubCategoryConfig, AnalyzeResponse, DocumentUploadResponse } from "@/lib/api/types";
+
+// ─── SSE ─────────────────────────────────────────────────────────────────────
+import { subscribeToProgress } from "@/lib/sse";
 
 // ─── Stage type ───────────────────────────────────────────────────────────────
 
 type Stage = "form" | "processing" | "verification";
-
-// ─── Timing constants for OCR simulation ─────────────────────────────────────
-// Per receipt: Scan(0ms) → Read(700ms) → Extract(1400ms) → done(2200ms)
-const STEP_MS = [0, 700, 1400, 2200] as const;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -501,7 +500,16 @@ export default function CaptureReceiptPage() {
   const [analysisResult, setAnalysisResult] = useState<AnalyzeResponse | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentStage, setCurrentStage] = useState("");
+  const [stageData, setStageData] = useState<Record<string, unknown> | undefined>(undefined);
   const originalOcrRef = useRef<OcrReceiptData[]>([]);
+  const sseCloseRef = useRef<{ close: () => void } | null>(null);
+
+  useEffect(() => {
+    return () => { sseCloseRef.current?.close(); };
+  }, []);
+
+  // ── Success modal ──────────────────────────────────────────────────────────
 
   // ── Success modal ──────────────────────────────────────────────────────────
   const [showSuccess, setShowSuccess] = useState(false);
@@ -558,42 +566,18 @@ export default function CaptureReceiptPage() {
     setFiles(prev => prev.map(f => f.id === id ? { ...f, name: newName } : f));
   }
 
-  // ── Real OCR via backend upload ────────────────────────────────────────────
-  const runOcr = useCallback(async (uploadedFiles: UploadedFile[]) => {
-    setCompletedNames([]);
-
-    // Get actual File objects from the map
-    const filesToUpload = uploadedFiles
-      .map(f => fileMapRef.current.get(f.id))
-      .filter((f): f is File => f !== undefined);
-
-    if (filesToUpload.length === 0) {
-      setStage("form");
-      return;
-    }
-
-    // Show the first file as "processing" while the upload runs
-    setProcessingIndex(0);
-    setProcessingStep(0);
-
-    const result = await uploadDocuments(filesToUpload);
-
-    if ("error" in result) {
-      setStage("form");
-      setSubmitError(result.error);
-      return;
-    }
-
+  // ── Real OCR via backend upload (with SSE live progress) ───────────────────
+  function handleProcessResult(result: any, fileNames: string[]) {
     setSettlementId(result.settlement_id);
-    setDocumentIds(result.receipts.map(r => r.document_id));
-    setCompletedNames(uploadedFiles.map(f => f.name));
-    setProcessingIndex(uploadedFiles.length - 1);
+    setDocumentIds((result.receipts as any[])?.map((r: any) => r.document_id) || []);
+    setCompletedNames(fileNames);
+    setProcessingIndex(fileNames.length - 1);
     setProcessingStep(3);
 
     // Map backend receipts → OcrReceiptData
-    const mappedReceipts: OcrReceiptData[] = result.receipts.map((r, idx) => ({
+    const mappedReceipts: OcrReceiptData[] = ((result.receipts as any[]) || []).map((r: any, idx: number) => ({
       receiptIndex: idx,
-      success: r.warnings.length === 0,
+      success: (r.warnings || []).length === 0,
       expenseDate: r.date ?? "",
       merchant: (r.extracted_data?.merchant_name as string) ?? r.description ?? "",
       transport: r.transportation ?? 0,
@@ -606,9 +590,8 @@ export default function CaptureReceiptPage() {
     originalOcrRef.current = mappedReceipts.map(r => ({ ...r }));
     setOcrReceipts(mappedReceipts);
 
-    // Map employee data
     if (result.employee) {
-      const emp = result.employee;
+      const emp: any = result.employee;
       setEmployeeData({
         entityName: "Reclaim",
         employeeName: emp.name ?? "",
@@ -620,18 +603,71 @@ export default function CaptureReceiptPage() {
     }
 
     setStage("verification");
-  }, []);
+  }
+
+  async function runOcr(filesList: UploadedFile[]) {
+    setProcessingIndex(0);
+    setProcessingStep(1);
+    setCompletedNames([]);
+
+    const filesToUpload = filesList
+      .map(f => fileMapRef.current.get(f.id))
+      .filter((f): f is File => f !== undefined);
+
+    if (filesToUpload.length === 0) {
+      setStage("form");
+      return;
+    }
+
+    const result = await uploadDocuments(filesToUpload);
+
+    if ("error" in result) {
+      setStage("form");
+      setSubmitError(result.error);
+      return;
+    }
+
+    const taskId = (result as unknown as Record<string, unknown>).task_id as string | undefined;
+
+    if (!taskId) {
+      handleProcessResult(result, filesList.map(f => f.name));
+      return;
+    }
+
+    sseCloseRef.current = subscribeToProgress(taskId, "documents", {
+      onProgress: (stage: string, data: Record<string, unknown>) => {
+        setCurrentStage(stage);
+        setStageData(data);
+
+        if (stage === "ocr_processing") {
+          const current = data.current as number;
+          const filename = data.filename as string;
+          setProcessingIndex(current - 1);
+          setProcessingStep(2);
+          if (filename) {
+            setCompletedNames((prev: string[]) => [...prev, filename]);
+          }
+        } else if (stage === "saving") {
+          setProcessingStep(2);
+        }
+      },
+      onComplete: (completeResult: Record<string, unknown>) => {
+        handleProcessResult(completeResult, filesList.map(f => f.name));
+      },
+        onError: (error: string) => {
+          console.error("OCR SSE error:", error);
+          handleProcessResult(result as unknown as DocumentUploadResponse, files.map(f => f.name));
+        },
+    });
+  }
 
   async function handleProcessReceipts() {
     if (!canProcess) return;
     setProcessingIndex(0);
     setProcessingStep(0);
     setStage("processing");
+    await runOcr(files);
   }
-
-  useEffect(() => {
-    if (stage === "processing") runOcr(files);
-  }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Submit ─────────────────────────────────────────────────────────────────
   async function handleSubmit() {
@@ -680,15 +716,35 @@ export default function CaptureReceiptPage() {
       document_ids: documentIds,
     });
 
-    setIsSubmitting(false);
-
     if ("error" in analyzeResult) {
+      setIsSubmitting(false);
       setSubmitError(analyzeResult.error);
       return;
     }
 
-    setAnalysisResult(analyzeResult);
-    setShowSuccess(true);
+    const taskId = (analyzeResult as unknown as Record<string, unknown>).task_id as string | undefined;
+
+    if (taskId) {
+      sseCloseRef.current = subscribeToProgress(taskId, "reimbursements", {
+        onProgress: (_stage: string, _data: Record<string, unknown>) => {
+          // Compliance analysis progress updates
+        },
+        onComplete: (completeResult: Record<string, unknown>) => {
+          setIsSubmitting(false);
+          setAnalysisResult(completeResult as unknown as AnalyzeResponse);
+          setShowSuccess(true);
+        },
+        onError: (error: string) => {
+          console.error("Compliance SSE error:", error);
+          setSubmitError(error);
+          setIsSubmitting(false);
+        },
+      });
+    } else {
+      setIsSubmitting(false);
+      setAnalysisResult(analyzeResult);
+      setShowSuccess(true);
+    }
   }
 
   // ── Reset ──────────────────────────────────────────────────────────────────
@@ -710,6 +766,8 @@ export default function CaptureReceiptPage() {
     setProcessingIndex(0);
     setProcessingStep(0);
     setCompletedNames([]);
+    setCurrentStage("");
+    setStageData(undefined);
   }
 
   function handleSubmitAnother() {
@@ -755,6 +813,8 @@ export default function CaptureReceiptPage() {
             currentIndex={processingIndex}
             currentStep={processingStep}
             completedFileNames={completedNames}
+            currentStage={currentStage}
+            stageData={stageData}
           />
         )}
 

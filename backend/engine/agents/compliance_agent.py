@@ -7,7 +7,6 @@ Per-receipt ReAct agents run in parallel; final_judgment agent produces the over
 """
 import json
 import logging
-import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, List, Optional
 from uuid import UUID
@@ -60,6 +59,56 @@ class ComplianceWorkflowState(TypedDict):
 
 # -- Helpers -------------------------------------------------------------------
 
+def _extract_text_content(content: Any) -> str:
+    """Extract string content from an AIMessage, handling both str and list types."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                parts.append(str(item.get("text", "")))
+            elif isinstance(item, dict):
+                parts.append(str(item))
+        return "\n".join(parts)
+    return str(content) if content else ""
+
+
+def _extract_json(content: str) -> dict | None:
+    """Try to extract a JSON object from text with brace-balanced parsing."""
+    if not content:
+        return None
+    try:
+        result = json.loads(content)
+        if isinstance(result, dict):
+            return result
+    except Exception:
+        pass
+    depth = 0
+    start = -1
+    candidates: list[str] = []
+    for i, ch in enumerate(content):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start >= 0:
+                candidates.append(content[start : i + 1])
+                start = -1
+    for candidate in reversed(candidates):
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            continue
+    return None
+
+
 def _format_human_edit_block(human_edit: dict) -> str:
     """Format _human_edit dict into a readable prompt block. Returns empty string if no changes."""
     if not human_edit or not human_edit.get("has_changes"):
@@ -80,16 +129,7 @@ def _format_human_edit_block(human_edit: dict) -> str:
 
 def _parse_line_item(content: str, receipt: dict) -> dict:
     """Parse JSON from LLM response for a single receipt. Returns a fallback dict on failure."""
-    parsed = None
-    try:
-        parsed = json.loads(content)
-    except Exception:
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-            except Exception:
-                pass
+    parsed = _extract_json(content)
 
     if isinstance(parsed, dict):
         requested = float(parsed.get("requested_amount", 0) or 0)
@@ -98,14 +138,14 @@ def _parse_line_item(content: str, receipt: dict) -> dict:
         parsed["deduction_amount"] = deducted
         return parsed
 
-    # Fallback
+    # Fallback — LLM response could not be parsed
     requested = float(receipt.get("total_amount", 0) or 0)
     return {
         "document_id": receipt.get("document_id", "unknown"),
         "date": receipt.get("date", ""),
         "category": receipt.get("category", ""),
         "description": receipt.get("merchant_name", ""),
-        "status": "REJECTED",
+        "status": "MANUAL_REVIEW",
         "requested_amount": requested,
         "approved_amount": 0.0,
         "deduction_amount": requested,
@@ -118,6 +158,7 @@ def _parse_line_item(content: str, receipt: dict) -> dict:
 
 def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
     """Load user, policy, and TravelSettlement basket from the database."""
+    logger.info("[LOAD_CONTEXT] Loading context for settlement=%s policy=%s user=%s", state.get("settlement_id"), state.get("policy_id"), state.get("user_id"))
     user = session.get(User, UUID(state["user_id"]))
     policy = session.get(Policy, UUID(state["policy_id"]))
 
@@ -140,6 +181,7 @@ def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
         try:
             settlement = session.get(TravelSettlement, UUID(state["settlement_id"]))
             if settlement:
+                logger.info("[LOAD_CONTEXT] Found settlement, fetching categories and receipts")
                 if not all_category:
                     # Fetch from normalized table
                     cats = session.exec(
@@ -155,6 +197,7 @@ def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
                         SettlementReceipt.settlement_id == settlement.settlement_id
                     )
                 ).all()
+                logger.info("[LOAD_CONTEXT] Found %d SettlementReceipts", len(s_receipts))
 
                 # Build receipt dicts from normalized rows
                 receipts = []
@@ -173,9 +216,11 @@ def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
                         if doc:
                             receipt_dict["extracted_data"] = doc.extracted_data or {}
                     receipts.append(receipt_dict)
+                    logger.info("[LOAD_CONTEXT] Receipt %s: category=%s amount=%s", receipt_dict.get("document_id"), receipt_dict.get("category"), receipt_dict.get("total_amount"))
 
                 currency = settlement.currency or ""
         except Exception:
+            logger.exception("[LOAD_CONTEXT] Error loading settlement data")
             pass
 
     # Enrich receipts with human edit context if any documents were edited
@@ -223,6 +268,8 @@ def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
                 seen.add(cond)
                 combined_conditions.append(cond)
 
+    logger.info("[LOAD_CONTEXT] Returning %d receipts, %d categories, %d conditions", len(receipts), len(all_category), len(combined_conditions))
+
     return {
         "user": user,
         "policy": policy,
@@ -238,12 +285,15 @@ def load_context(state: ComplianceWorkflowState, session: Session) -> dict:
     }
 
 
-def analyze_receipts(state: ComplianceWorkflowState, tools: list) -> dict:
+def analyze_receipts(state: ComplianceWorkflowState, tools: list, progress_callback=None) -> dict:
     """Run per-receipt ReAct agents in parallel using ThreadPoolExecutor."""
     receipts = state["receipts"]
     user = state["user"]
+    logger.info("[ANALYZE_RECEIPTS] Starting analysis of %d receipts", len(receipts))
 
     def analyze_one(receipt: dict) -> dict:
+        doc_id = receipt.get("document_id", "unknown")
+        logger.info("[ANALYZE_ONE] Starting analysis for receipt %s", doc_id)
         human_edit_block = _format_human_edit_block(receipt.get("_human_edit", {}))
         conditions = state["combined_conditions"]
 
@@ -260,12 +310,17 @@ def analyze_receipts(state: ComplianceWorkflowState, tools: list) -> dict:
         agent = create_react_agent(get_agent_llm(), tools)
         result = agent.invoke(
             {"messages": [HumanMessage(content=prompt)]},
-            config={"recursion_limit": 15},
+            config={"recursion_limit": 25},
         )
 
         last_msg = result["messages"][-1]
-        content = last_msg.content if isinstance(last_msg.content, str) else ""
-        return _parse_line_item(content, receipt)
+        content = _extract_text_content(last_msg.content)
+        parsed = _parse_line_item(content, receipt)
+        logger.info(
+            "[ANALYZE_ONE] Receipt %s result: status=%s requested=%s approved=%s",
+            doc_id, parsed.get("status"), parsed.get("requested_amount"), parsed.get("approved_amount"),
+        )
+        return parsed
 
     line_items = []
     with ThreadPoolExecutor(max_workers=4) as executor:
@@ -273,17 +328,26 @@ def analyze_receipts(state: ComplianceWorkflowState, tools: list) -> dict:
         for future in as_completed(future_to_receipt):
             receipt = future_to_receipt[future]
             try:
-                line_items.append(future.result())
+                li = future.result()
+                line_items.append(li)
+                logger.info("[ANALYZE_RECEIPTS] Completed %d/%d receipts", len(line_items), len(receipts))
+                if progress_callback:
+                    progress_callback("analyze_receipts", {
+                        "current": len(line_items),
+                        "total": len(receipts),
+                    })
             except Exception as e:
-                logger.error(f"analyze_receipts error for {receipt.get('document_id')}: {e}")
+                logger.error("[ANALYZE_RECEIPTS] Error for receipt %s: %s", receipt.get("document_id"), e)
                 line_items.append(_parse_line_item("", receipt))
 
+    logger.info("[ANALYZE_RECEIPTS] Finished with %d line_items", len(line_items))
     return {"line_items": line_items}
 
 
 def aggregate_totals(state: ComplianceWorkflowState) -> dict:
     """Compute aggregate totals from all line items (pure Python, no LLM)."""
     line_items = state.get("line_items", [])
+    logger.info("[AGGREGATE_TOTALS] Aggregating %d line items", len(line_items))
     total_requested = sum(float(li.get("requested_amount", 0) or 0) for li in line_items)
     total_deduction = sum(float(li.get("deduction_amount", 0) or 0) for li in line_items)
     net_approved = sum(float(li.get("approved_amount", 0) or 0) for li in line_items)
@@ -296,7 +360,7 @@ def aggregate_totals(state: ComplianceWorkflowState) -> dict:
         by_category[cat]["claimed"] += float(li.get("requested_amount", 0) or 0)
         by_category[cat]["approved"] += float(li.get("approved_amount", 0) or 0)
 
-    return {
+    totals_result = {
         "totals": {
             "total_requested": round(total_requested, 2),
             "total_deduction": round(total_deduction, 2),
@@ -304,11 +368,14 @@ def aggregate_totals(state: ComplianceWorkflowState) -> dict:
             "by_category": by_category,
         }
     }
+    logger.info("[AGGREGATE_TOTALS] Totals: requested=%s approved=%s deduction=%s", totals_result["totals"]["total_requested"], totals_result["totals"]["net_approved"], totals_result["totals"]["total_deduction"])
+    return totals_result
 
 
 def final_judgment(state: ComplianceWorkflowState, tools: list) -> dict:
     """Run a ReAct agent to produce the overall settlement verdict."""
     policy = state.get("policy")
+    logger.info("[FINAL_JUDGMENT] Running final judgment on %d line_items", len(state.get("line_items", [])))
 
     prompt = FINAL_JUDGMENT_PROMPT.format(
         line_items_json=json.dumps(state.get("line_items", []), indent=2, default=str),
@@ -319,25 +386,15 @@ def final_judgment(state: ComplianceWorkflowState, tools: list) -> dict:
     agent = create_react_agent(get_agent_llm(), tools)
     result = agent.invoke(
         {"messages": [HumanMessage(content=prompt)]},
-        config={"recursion_limit": 9},
+        config={"recursion_limit": 15},
     )
 
     last_msg = result["messages"][-1]
-    content = last_msg.content if isinstance(last_msg.content, str) else ""
+    content = _extract_text_content(last_msg.content)
 
-    parsed = None
-    try:
-        parsed = json.loads(content)
-    except Exception:
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if match:
-            try:
-                parsed = json.loads(match.group())
-            except Exception:
-                pass
-
+    parsed = _extract_json(content)
     if not parsed:
-        logger.warning(f"final_judgment parse failed. Content: {content[:200]}")
+        logger.warning("[FINAL_JUDGMENT] Parse failed. Content: %s", content[:200])
         parsed = {}
 
     try:
@@ -345,8 +402,11 @@ def final_judgment(state: ComplianceWorkflowState, tools: list) -> dict:
     except (ValueError, TypeError):
         confidence = 0.0
 
+    judgment = parsed.get("overall_judgment", "MANUAL REVIEW")
+    logger.info("[FINAL_JUDGMENT] Result: judgment=%s confidence=%s", judgment, confidence)
+
     return {
-        "judgment": parsed.get("overall_judgment", "MANUAL REVIEW"),
+        "judgment": judgment,
         "confidence": confidence,
         "summary": parsed.get("summary", ""),
     }
@@ -383,6 +443,8 @@ def save_reimbursement(state: ComplianceWorkflowState, session: Session) -> dict
     judgment_str = state.get("judgment", "MANUAL REVIEW")
     judgment_enum = _map_agent_status_to_enum(judgment_str)
 
+    logger.info("[SAVE_REIMBURSEMENT] Saving reimbursement: judgment=%s claimed=%s approved=%s", judgment_str, total_claimed, total_approved)
+
     reimbursement = Reimbursement(
         user_id=UUID(state["user_id"]),
         policy_id=UUID(state["policy_id"]),
@@ -407,6 +469,7 @@ def save_reimbursement(state: ComplianceWorkflowState, session: Session) -> dict
     try:
         session.add(reimbursement)
         session.flush()
+        logger.info("[SAVE_REIMBURSEMENT] Created reimbursement reim_id=%s", reimbursement.reim_id)
 
         # Bulk insert ReimbursementSubCategory rows
         for cat in state.get("all_category", []):
@@ -417,6 +480,7 @@ def save_reimbursement(state: ComplianceWorkflowState, session: Session) -> dict
             session.add(rsc)
 
         # Bulk insert LineItem rows
+        line_item_count = 0
         for li in state.get("line_items", []):
             # Map agent status to enum
             li_judgment = _map_agent_status_to_enum(li.get("status", "APPROVED"))
@@ -450,10 +514,13 @@ def save_reimbursement(state: ComplianceWorkflowState, session: Session) -> dict
                 rejection_reason=rejection_reason,
             )
             session.add(line_item)
+            line_item_count += 1
 
         session.commit()
         session.refresh(reimbursement)
+        logger.info("[SAVE_REIMBURSEMENT] Committed %d line_items for reim_id=%s", line_item_count, reimbursement.reim_id)
     except Exception:
+        logger.exception("[SAVE_REIMBURSEMENT] Failed to save reimbursement")
         session.rollback()
         raise
 
@@ -470,6 +537,7 @@ def run_compliance_workflow(
     all_category: Optional[List[str]],
     session: Session,
     document_ids: Optional[List[str]] = None,
+    progress_callback=None,
 ) -> dict:
     """
     Compile and run the 5-node compliance graph.
@@ -477,23 +545,37 @@ def run_compliance_workflow(
     confidence, and summary.
     """
     tools = [get_current_date, make_search_policy_rag_tool(policy_id, session)]
+    _progress = {"cb": progress_callback}
 
     def _load_context(state):
+        if _progress["cb"]:
+            _progress["cb"]("load_context", {"message": "Loading policy and receipts..."})
         return load_context(state, session)
 
     def _analyze_receipts(state):
-        return analyze_receipts(state, tools)
+        if _progress["cb"]:
+            _progress["cb"]("analyze_receipts", {"message": "Analyzing receipts with AI..."})
+        return analyze_receipts(state, tools, progress_callback=_progress["cb"])
+
+    def _aggregate_totals(state):
+        if _progress["cb"]:
+            _progress["cb"]("aggregate_totals", {"message": "Computing totals..."})
+        return aggregate_totals(state)
 
     def _final_judgment(state):
+        if _progress["cb"]:
+            _progress["cb"]("final_judgment", {"message": "Making judgment..."})
         return final_judgment(state, tools)
 
     def _save_reimbursement(state):
+        if _progress["cb"]:
+            _progress["cb"]("save_reimbursement", {"message": "Saving reimbursement result..."})
         return save_reimbursement(state, session)
 
     graph = StateGraph(ComplianceWorkflowState)
     graph.add_node("load_context", _load_context)
     graph.add_node("analyze_receipts", _analyze_receipts)
-    graph.add_node("aggregate_totals", aggregate_totals)
+    graph.add_node("aggregate_totals", _aggregate_totals)
     graph.add_node("final_judgment", _final_judgment)
     graph.add_node("save_reimbursement", _save_reimbursement)
 
@@ -506,6 +588,7 @@ def run_compliance_workflow(
 
     app = graph.compile()
 
+    logger.info("[RUN_COMPLIANCE] Invoking graph for settlement=%s policy=%s", settlement_id, policy_id)
     result = app.invoke({
         "settlement_id": settlement_id,
         "policy_id": policy_id,
@@ -525,6 +608,7 @@ def run_compliance_workflow(
         "reimbursement_id": "",
     })
 
+    logger.info("[RUN_COMPLIANCE] Graph complete. reimbursement_id=%s judgment=%s", result.get("reimbursement_id"), result.get("judgment"))
     return {
         "reimbursement_id": result.get("reimbursement_id", ""),
         "judgment": result.get("judgment", ""),

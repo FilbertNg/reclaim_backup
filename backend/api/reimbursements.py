@@ -3,7 +3,12 @@ from datetime import datetime, timezone
 from typing import List, Optional
 from uuid import UUID
 
+import asyncio
+import json
+import concurrent.futures
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
@@ -20,7 +25,9 @@ from core.models import (
     Department,
 )
 from core.enums import UserRole, ReimbursementStatus, JudgmentResult
+from core.database import engine as db_engine
 from engine.agents.compliance_agent import run_compliance_workflow
+from engine.progress import ProgressTracker
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -278,12 +285,15 @@ def get_reimbursement_line_items(
 
 
 @router.post("/analyze")
-def analyze_reimbursement(
+async def analyze_reimbursement(
     request: AnalyzeReimbursementRequest,
     db: Session = Depends(deps.get_db),
     current_user: User = Depends(deps.get_current_user),
 ) -> dict:
     """Run basket compliance analysis on a TravelSettlement against a policy."""
+    logger.info("[API_ANALYZE] Called with settlement=%s policy=%s docs=%s user=%s", request.settlement_id, request.policy_id, request.document_ids, current_user.user_id)
+
+    # === Validation ===
     try:
         settlement_uuid = UUID(request.settlement_id)
         policy_uuid = UUID(request.policy_id)
@@ -300,14 +310,12 @@ def analyze_reimbursement(
             detail=f"Settlement {request.settlement_id} not found",
         )
 
-    # Constraint 6: settlement must belong to same user
     if settlement.user_id != current_user.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Settlement does not belong to current user",
         )
 
-    # Fetch policy to get main_category and reimbursable categories
     policy = db.get(Policy, policy_uuid)
     if not policy:
         raise HTTPException(
@@ -315,7 +323,6 @@ def analyze_reimbursement(
             detail=f"Policy {request.policy_id} not found",
         )
 
-    # Fetch reimbursable categories from normalized table
     from core.models import PolicyReimbursableCategory
     policy_cats = db.exec(
         select(PolicyReimbursableCategory).where(
@@ -324,7 +331,6 @@ def analyze_reimbursement(
     ).all()
     reimbursable_categories = [c.category for c in policy_cats]
 
-    # Auto-fetch main_category from policy (first reimbursable category)
     main_category = reimbursable_categories[0] if reimbursable_categories else ""
 
     if not main_category:
@@ -338,20 +344,20 @@ def analyze_reimbursement(
         db.exec(
             select(SupportingDocument).where(
                 SupportingDocument.settlement_id == settlement_uuid,
-                SupportingDocument.human_edited == True,  # noqa: E712
+                SupportingDocument.human_edited == True,
             )
         ).first()
     )
 
-    # Check for existing reimbursement (circular FK removed, use settlement_id instead)
     cached_reim = db.exec(
         select(Reimbursement).where(Reimbursement.settlement_id == settlement_uuid)
     ).first()
 
     if not has_edits and cached_reim:
+        logger.info("[API_ANALYZE] Returning cached reimbursement %s", cached_reim.reim_id)
         return _build_reimbursement_response(cached_reim, db, include_line_items=True)
 
-    # Fetch settlement categories from normalized table
+    # Fetch settlement categories
     settlement_cats = db.exec(
         select(SettlementCategory).where(
             SettlementCategory.settlement_id == settlement_uuid
@@ -362,32 +368,87 @@ def analyze_reimbursement(
     if not all_category:
         all_category = reimbursable_categories or [main_category]
 
-    try:
-        result = run_compliance_workflow(
-            settlement_id=request.settlement_id,
-            policy_id=request.policy_id,
-            main_category=main_category,
-            user_id=str(current_user.user_id),
-            all_category=all_category,
-            session=db,
-            document_ids=request.document_ids,
-        )
-    except Exception as e:
-        logger.exception("Compliance workflow failed")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Compliance workflow failed: {type(e).__name__}: {str(e)}"
-        )
+    logger.info("[API_ANALYZE] Categories for analysis: %s", all_category)
 
-    if result.get("reimbursement_id"):
-        reim = db.get(Reimbursement, UUID(result["reimbursement_id"]))
-        if reim:
-            return _build_reimbursement_response(reim, db, include_line_items=True)
+    # === Extract params for background processing ===
+    user_id_str = str(current_user.user_id)
 
-    return {
-        **result,
-        "main_category": main_category,
-        "sub_categories": all_category or [],
-        "cached": False,
-        "message": "First-time evaluation"
-    }
+    # === Create task and launch background processing ===
+    tracker = ProgressTracker()
+    task_id = tracker.create_task()
+    logger.info("[API_ANALYZE] Created task_id=%s for background compliance", task_id)
+
+    loop = asyncio.get_event_loop()
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+
+    def _process_background():
+        logger.info("[API_ANALYZE_BG] Starting background compliance for task=%s", task_id)
+        with Session(db_engine) as bg_db:
+            def progress_callback(stage: str, data: dict):
+                logger.info("[API_ANALYZE_BG] task=%s stage=%s", task_id, stage)
+                tracker.publish(task_id, stage, data)
+
+            try:
+                result = run_compliance_workflow(
+                    settlement_id=request.settlement_id,
+                    policy_id=request.policy_id,
+                    main_category=main_category,
+                    user_id=user_id_str,
+                    all_category=all_category,
+                    session=bg_db,
+                    document_ids=request.document_ids,
+                    progress_callback=progress_callback,
+                )
+                logger.info("[API_ANALYZE_BG] Workflow returned reimbursement_id=%s", result.get("reimbursement_id"))
+                reim_id = result.get("reimbursement_id")
+                if not reim_id:
+                    logger.error("[API_ANALYZE_BG] No reimbursement_id returned")
+                    tracker.publish(task_id, "error", {"message": "Compliance workflow returned no reimbursement ID"})
+                    return
+                reim = bg_db.get(Reimbursement, UUID(reim_id))
+                if not reim:
+                    logger.error("[API_ANALYZE_BG] Reimbursement %s not found in DB", reim_id)
+                    tracker.publish(task_id, "error", {"message": f"Reimbursement {reim_id} not found in database"})
+                    return
+                try:
+                    formatted = _build_reimbursement_response(reim, bg_db, include_line_items=True)
+                    logger.info("[API_ANALYZE_BG] Publishing complete event for task=%s", task_id)
+                    tracker.publish(task_id, "complete", formatted)
+                except Exception as build_err:
+                    logger.exception("[API_ANALYZE_BG] Failed to build response")
+                    tracker.publish(task_id, "error", {"message": f"Failed to format response: {build_err}"})
+            except Exception as e:
+                logger.exception("[API_ANALYZE_BG] Compliance workflow failed")
+                tracker.publish(task_id, "error", {"message": str(e)})
+
+    loop.run_in_executor(executor, _process_background)
+
+    logger.info("[API_ANALYZE] Returning task_id=%s", task_id)
+    return {"task_id": task_id}
+
+
+@router.get("/analyze/progress/{task_id}")
+async def analyze_progress(task_id: str):
+    """SSE endpoint: stream progress events for a compliance analysis task."""
+    logger.info("[API_SSE] Client connected to reimbursements/analyze/progress/%s", task_id)
+    tracker = ProgressTracker()
+
+    async def event_generator():
+        try:
+            async for event_str in tracker.subscribe(task_id):
+                logger.info("[API_SSE] Streaming event for task=%s: %s", task_id, event_str.strip().replace("\n", " "))
+                yield event_str
+        except asyncio.CancelledError:
+            logger.info("[API_SSE] Client disconnected from task=%s", task_id)
+        finally:
+            asyncio.create_task(tracker.cleanup(task_id))
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )

@@ -290,6 +290,7 @@ export interface DocumentUploadResponse {
   all_warnings: string[];
   all_category: string[];
   main_category: string | null;
+  task_id?: string;
 }
 
 // ─── Document Edits ───────────────────────────────────────────────────────────
@@ -355,4 +356,5 @@ export interface AnalyzeResponse {
   created_at: string | null;
   cached: boolean;
   message: string;
+  task_id?: string;
 }
