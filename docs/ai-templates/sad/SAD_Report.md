@@ -36,9 +36,9 @@ Data in Reclaim flows directionally through two distinct portal journeys. In the
 
 Reclaim's AI processing is organized into three discrete agent workflows:
 
-- **Workflow 1 — Policy Agent**: A 4-node LangGraph pipeline (`process_pdfs → extract_categories_and_summary → extract_conditions → save_to_db`) that ingests HR-uploaded PDFs, converts them to markdown via PyMuPDF4LLM, calls the ILMU GLM-5.1 LLM twice (once for category/summary extraction, once for condition extraction), and persists a structured `Policy` record.
+- **Workflow 1 — Policy Agent**: A 5-node LangGraph pipeline (`process_pdfs → extract_categories_and_summary → extract_conditions → save_to_db → embed_and_save_sections`) that ingests HR-uploaded PDFs, converts them to markdown via PyMuPDF4LLM, calls the ILMU GLM-5.1 LLM twice (once for category/summary extraction, once for condition extraction), persists a structured `Policy` record, and then batch-embeds all markdown chunks via text-embedding-3-small and writes them as `PolicySection` rows with pgvector embeddings for RAG.
 - **Workflow 2 — Document Agent**: A parallel ThreadPoolExecutor-based pipeline (up to 4 concurrent LLM workers) that routes each uploaded file — images to the Llama 3.2 Vision model via OpenRouter, PDFs to GLM-5.1 in JSON mode — extracts structured receipt data, detects warnings, and aggregates everything into a `TravelSettlement` record.
-- **Workflow 3 — Compliance Agent**: A 4-node LangGraph pipeline (`load_context → analyze_receipts → aggregate_totals → final_judgment → save_reimbursement`) that evaluates the settlement basket against policy conditions. Per-receipt analysis runs in parallel via ReAct agents; a final ReAct agent synthesizes the overall judgment (`APPROVE`, `REJECT`, `PARTIAL_APPROVE`, or `MANUAL REVIEW`) and persists a `Reimbursement` record.
+- **Workflow 3 — Compliance Agent**: A 5-node LangGraph pipeline (`load_context → analyze_receipts → aggregate_totals → final_judgment → save_reimbursement`) that evaluates the settlement basket against policy conditions. Per-receipt analysis runs in parallel via ReAct agents (max 5 tool calls each); `aggregate_totals` is a pure Python node (no LLM); a final ReAct agent synthesizes the overall judgment (`APPROVE`, `REJECT`, `PARTIAL_APPROVE`, or `MANUAL REVIEW`) and persists a `Reimbursement` record.
 
 ### 4. Role of Reference
 
@@ -104,7 +104,7 @@ Reclaim uses the **ILMU GLM-5.1** model as its central reasoning engine and orch
 
 Supporting GLM-5.1 is the **Llama 3.2 11B Vision Instruct** model, accessed via OpenRouter, which handles image-based receipt OCR exclusively. When a receipt is an image file (JPEG, PNG), the Document Agent constructs a multimodal `HumanMessage` with the base64-encoded image payload and sends it to Llama Vision, which extracts the same structured JSON fields as the text path. This dual-model routing — vision for images, GLM for PDFs — allows Reclaim to handle the full spectrum of receipt formats without sacrificing extraction accuracy for either type.
 
-An OpenAI text-embedding-3-small model (via OpenRouter) is registered in the configuration as `EMBEDDING_MODEL`, but the RAG pipeline that previously consumed it has been retired as of 2026-04-23. The embedding infrastructure remains in the configuration but no embedding calls are active in the current codebase. The compliance agent's `search_policy_rag` tool is registered but its implementation (`rag_tool.py`) is an empty stub — a known transitional state documented in the Implementation Conflict Report.
+An OpenAI text-embedding-3-small model (via OpenRouter) is registered in the configuration as `EMBEDDING_MODEL` and is actively used. Policy Agent Node 5 (`embed_and_save_sections`) batch-embeds all policy section chunks via this model and persists them as `policy_sections` rows with 1536-dim vectors. The compliance agent's `search_policy_rag` tool calls `search_policy_sections()` in `rag_tool.py`, which first attempts a pgvector cosine-similarity query (`embedding <=> CAST(:qvec AS vector)`) against the stored vectors, then falls back to in-Python keyword filtering if the vector search fails.
 
 ### 2.1.3. Dependency Diagram
 
@@ -129,7 +129,7 @@ The following diagram illustrates how the major system components interact, incl
                 │                    │                   │                        │
                 │  ┌──────────────┐  │                   │  employees             │
                 │  │Policy Agent  │  │ ──── DB write ──► │  policies              │
-                │  │(4 nodes)     │  │                   │  policy_sections       │
+                │  │(5 nodes)     │  │                   │  policy_sections       │
                 │  └──────────────┘  │                   │  travel_settlements    │
                 │  ┌──────────────┐  │                   │  reimbursements        │
                 │  │Document Agent│  │ ──── DB write ──► │  supporting_documents  │
@@ -137,7 +137,7 @@ The following diagram illustrates how the major system components interact, incl
                 │  └──────────────┘  │                   └────────────────────────┘
                 │  ┌──────────────┐  │
                 │  │Compliance    │  │
-                │  │Agent (4nodes)│  │ ──── DB write ──► reimbursements table
+                │  │Agent (5nodes)│  │ ──── DB write ──► reimbursements table
                 │  └──────────────┘  │
                 └────────┬───────────┘
                          │
@@ -166,6 +166,10 @@ CONTEXT WINDOW FLOW (per LLM call):
 │                                                         │
 │ Policy Agent, Node 3: Category list + markdown → JSON   │
 │                                                         │
+│ Policy Agent, Node 5: No LLM call — embeds chunks       │
+│   via text-embedding-3-small (OpenRouter, batch call)   │
+│   and writes PolicySection rows with 1536-dim vectors.  │
+│                                                         │
 │ Document Agent (Image path): Base64 image + OCR         │
 │   prompt + active category list → JSON                  │
 │                                                         │
@@ -175,6 +179,8 @@ CONTEXT WINDOW FLOW (per LLM call):
 │ Compliance Agent per-receipt: Employee context +        │
 │   single receipt JSON + policy conditions               │
 │   (up to 5 tool calls) → JSON line_item                 │
+│   RAG tool: embeds query → pgvector cosine search       │
+│   → up to 6 policy section excerpts injected            │
 │                                                         │
 │ Compliance Agent final: All line_items array +          │
 │   totals dict + policy overview (≤150 words)            │
@@ -182,7 +188,7 @@ CONTEXT WINDOW FLOW (per LLM call):
 │                                                         │
 │ Token chunking: PDFs chunked to 8000 chars before       │
 │   reaching GLM. Policy markdown capped at 80k chars.    │
-│   RAG would inject only relevant chunks (retired).      │
+│   RAG injects up to 6 × 1500-char policy chunks.        │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -200,7 +206,9 @@ CONTEXT WINDOW FLOW (per LLM call):
 | FastAPI (Doc Agent) | OpenRouter | Vision LLM inference | Image receipt uploaded |
 | FastAPI (Doc Agent) | ILMU API | Chat LLM inference (JSON mode) | PDF receipt uploaded |
 | FastAPI (Policy Agent) | ILMU API | Chat LLM inference × 2 | Policy PDF uploaded |
+| FastAPI (Policy Agent) | OpenRouter | Embedding inference (batch) | Policy PDF uploaded (node 5) |
 | FastAPI (Compliance Agent) | ILMU API | ReAct Agent × N+1 | Analyze called |
+| FastAPI (Compliance Agent) | OpenRouter | Embedding inference (per RAG query) | search_policy_rag tool call |
 | FastAPI | LangSmith | Trace ingest | All LangGraph/LangChain calls |
 
 ### 2.1.4. Sequence Diagram
@@ -215,7 +223,7 @@ The following sequence diagram traces the primary user interaction flow — an e
      │                │                 │                   │               │
      │ POST /auth/login                 │                   │               │
      │───────────────►│                 │                   │               │
-     │ JWT token       │                 │                   │               │
+     │ JWT token      │                 │                   │               │
      │◄───────────────│                 │                   │               │
      │                │                 │                   │               │
      │ POST /documents/upload           │                   │               │
@@ -322,7 +330,7 @@ Designed using component-driven prototyping aligned to a mobile-first responsive
 
 - **PostgreSQL 16** — Primary relational database (containerized via Docker)
 - **SQLModel 0.0.22** — ORM combining SQLAlchemy 2.0.36 and Pydantic 2.13.1
-- **pgvector 0.3.6** — Vector extension (present in schema, RAG pipeline retired)
+- **pgvector 0.3.6** — Vector extension actively used: `policy_sections.embedding` stores 1536-dim vectors queried via cosine-similarity in the compliance agent's RAG tool
 - **Alembic 1.13.1** — Database migration management
 
 ### 2.2.5. Cloud / Deployment
@@ -345,62 +353,81 @@ Data in Reclaim flows through the system in structured, typed payloads at every 
                     RECLAIM — DATA FLOW DIAGRAM (Level 1)
 ═══════════════════════════════════════════════════════════════════════════
 
-EXTERNAL ENTITIES:    [Employee]         [HR]         [LLM APIs]
-                          │               │                │
-                          ▼               ▼                │
-┌─────────────────────────────────────────────────────────│──────────────┐
-│                   PROCESS: FastAPI Application           │              │
-│                                                          │              │
-│  ┌────────────────────────────────────┐                  │              │
-│  │  P1: Auth Management               │                  │              │
-│  │  (login, register, JWT issue)      │                  │              │
-│  └──────────────────┬─────────────────┘                  │              │
-│                     │ JWT token                          │              │
-│  ┌──────────────────▼─────────────────┐                  │              │
-│  │  P2: Receipt Ingestion             │                  │              │
-│  │  POST /documents/upload            │─────────────────►│ Vision LLM  │
-│  │  (save files → invoke Doc Agent)  │◄─────────────────│ (images)    │
-│  │                                    │                  │             │
-│  │  POST /documents/{id}/edits        │─────────────────►│ Text LLM   │
-│  │  (change detection → flag edits)   │◄─────────────────│ (PDFs)     │
-│  └──────────────────┬─────────────────┘                  │              │
-│                     │ settlement_id, document_ids         │              │
-│  ┌──────────────────▼─────────────────┐                  │              │
-│  │  P3: Compliance Analysis           │                  │              │
-│  │  POST /reimbursements/analyze      │─────────────────►│ Chat LLM   │
-│  │  (invoke Compliance Agent)         │◄─────────────────│ (ReAct)    │
-│  └──────────────────┬─────────────────┘                  │              │
-│                     │ reim_id, judgment, line_items       │              │
-│  ┌──────────────────▼─────────────────┐                  │              │
-│  │  P4: HR Decision Processing        │                  │              │
-│  │  PATCH /reimbursements/{id}/status │                  │              │
-│  │  (HR role enforced, status update) │                  │              │
-│  └──────────────────┬─────────────────┘                  │              │
-│                     │                                    │              │
-│  ┌──────────────────▼─────────────────┐                  │              │
-│  │  P5: Policy Management             │                  │              │
-│  │  POST /policies/upload             │─────────────────►│ Chat LLM   │
-│  │  (invoke Policy Agent)             │◄─────────────────│ (2 calls)  │
-│  └────────────────────────────────────┘                  │              │
-└──────────────────────────────────┬──────────────────────────────────────┘
-                                   │
-                    ┌──────────────▼──────────────┐
-                    │   DATA STORE: PostgreSQL     │
-                    │                              │
-                    │  D1: employees               │
-                    │  D2: policies                │
-                    │  D3: policy_sections         │
-                    │  D4: travel_settlements      │
-                    │  D5: reimbursements          │
-                    │  D6: supporting_documents    │
-                    └──────────────────────────────┘
+  [HR]                                              [Employee]
+   │                                                    │
+   │ ① HR uploads policy FIRST                          │ ③ Employee logs in
+   ▼                                                    ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        PROCESS: FastAPI Application                      │
+│                                                                          │
+│  ┌────────────────────────────────┐                                      │
+│  │  P5: Policy Management         │◄── HR uploads PDF + alias            │
+│  │  POST /policies/upload         │                                      │
+│  │  (invoke Policy Agent)         │──► Chat LLM × 2 (GLM-5.1)            │
+│  │                                │    categories + conditions           │
+│  │                                │──► Embedding LLM (text-embed-3-small)│
+│  │                                │    batch-embed section chunks        │
+│  └───────────────┬────────────────┘                                      │
+│                  │ writes                                                │
+│                  ▼                                                       │
+│  ┌──────────────────────────────┐      ┌──────────────────────────────┐  │
+│  │  D2: policies                │      │  P1: Auth Management         │  │
+│  │  D3: policy_sections         │      │  (login, register, JWT issue)│  │
+│  │  (with embeddings)           │      └──────────────┬───────────────┘  │
+│  └──────────────────────────────┘                     │ JWT token        │
+│           │ ② read at analysis time                   ▼                  │
+│           │                           ┌──────────────────────────────┐   │
+│           │                           │  P2: Receipt Ingestion        │   │
+│           │                           │  POST /documents/upload       │◄──┤ Employee
+│           │                           │  (invoke Document Agent)      │   │ uploads
+│           │                           │                               │──► Vision LLM (images)
+│           │                           │  POST /documents/{id}/edits   │──► Text LLM (PDFs)
+│           │                           │  (change detection)           │   │
+│           │                           └──────────────┬───────────────┘   │
+│           │                                          │ settlement_id      │
+│           │                                          ▼                    │
+│           │                           ┌──────────────────────────────┐   │
+│           └──────────────────────────►│  P3: Compliance Analysis      │   │
+│                                       │  POST /reimbursements/analyze │◄──┤ Employee
+│                                       │  (invoke Compliance Agent)    │   │ submits
+│                                       │                               │──► Chat LLM ReAct × N+1
+│                                       │  reads: D2 (policy) +         │──► Embedding LLM (RAG)
+│                                       │         D4 (settlement)        │   │
+│                                       └──────────────┬───────────────┘   │
+│                                                      │ reim_id, judgment  │
+│                                                      ▼                    │
+│                                       ┌──────────────────────────────┐   │
+│                                       │  P4: HR Decision Processing   │◄──┤ HR
+│                                       │  PATCH /reimbursements/{id}/  │   │ approves
+│                                       │  status (HR role enforced)    │   │ or rejects
+│                                       └──────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────┘
+                          │ (all processes write to / read from)
+                          ▼
+          ┌───────────────────────────────┐
+          │   DATA STORE: PostgreSQL      │
+          │                               │
+          │  D1: employees                │ ← written by P1, read by P2/P3
+          │  D2: policies                 │ ← written by P5, read by P3
+          │  D3: policy_sections          │ ← written by P5 (embeddings),
+          │      (1536-dim embeddings)    │   queried by P3 RAG tool
+          │  D4: travel_settlements       │ ← written by P2, read by P3
+          │  D5: reimbursements           │ ← written by P3, updated by P4
+          │  D6: supporting_documents     │ ← written by P2, read by P3
+          └───────────────────────────────┘
+
+CORRECT OPERATIONAL ORDER:
+  ① P5 (Policy Upload) must run BEFORE P3 — compliance requires an active policy.
+  ② P2 (Receipt Ingestion) must run BEFORE P3 — compliance reads the settlement basket.
+  ③ P3 (Compliance Analysis) must run BEFORE P4 — HR decision acts on AI judgment.
+  P1 (Auth) is a gate for P2 and P4; it has no ordering dependency on P5.
 
 BLACK HOLE LAW COMPLIANCE:
-- Every process that reads from a data store also writes to it or to another.
-- P2 reads employees (for user_id), writes supporting_documents + travel_settlements.
-- P3 reads travel_settlements + policies, writes reimbursements.
+- P1 reads employees (auth check), writes nothing (JWT is stateless).
+- P2 reads employees (for user context), writes supporting_documents + travel_settlements.
+- P3 reads travel_settlements + policies + policy_sections, writes reimbursements.
 - P4 reads reimbursements, writes reimbursements (status update).
-- P5 reads nothing from DB, writes policies + policy_sections.
+- P5 reads nothing from DB, writes policies + policy_sections (with embeddings).
 - No data is consumed without a corresponding output record.
 ```
 
@@ -410,86 +437,118 @@ The database schema is designed to **Third Normal Form (3NF)**: every non-key at
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                    RECLAIM — ENTITY RELATIONSHIP DIAGRAM                    │
+│             RECLAIM — ENTITY RELATIONSHIP DIAGRAM                           │
+│             (verified against backend/core/models.py)                       │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────┐
 │        employees         │
 ├──────────────────────────┤
-│ PK user_id: UUID         │◄──────────────────────────────────┐
-│    email: str (unique)   │                                   │
-│    hashed_password: str  │                                   │
-│    name: str             │                                   │
-│    role: Enum(HR,Emp)    │                                   │
-│    department: str       │                                   │
-│    rank: int (default=1) │                                   │
-│    privilege_level: str  │                                   │
-│    user_code: str        │                                   │
-└──────────────────────────┘                                   │
-                                                               │
-┌──────────────────────────┐     ┌─────────────────────────────┴───────┐
+│ PK user_id: UUID         │◄───────────────────────┬──────────────────────┐
+│    email: str (unique)   │                        │FK                    │FK
+│    hashed_password: str  │                        │                      │
+│    name: str             │              ┌─────────┴──────┐   ┌──────────┴──────────┐
+│    role: str (HR|Emp)    │              │  reimbursements│   │supporting_documents  │
+│    department: str       │              │  (see below)   │   │  (see right)         │
+│    rank: int (default=1) │              └────────────────┘   └─────────────────────┘
+│    privilege_level: str  │
+│    user_code: str        │
+└──────────────────────────┘
+
+┌──────────────────────────┐     ┌─────────────────────────────────────┐
 │        policies          │     │       supporting_documents           │
 ├──────────────────────────┤     ├─────────────────────────────────────┤
-│ PK policy_id: UUID       │     │ PK document_id: UUID                │
-│    alias: str            │     │ FK user_id → employees.user_id      │
-│    title: str            │     │ FK settlement_id → travel_settl.    │
-│    reimbursable_category │     │ FK reim_id → reimbursements         │
-│      : List[str] (JSONB) │     │    name: str                        │
-│    effective_date: dt    │     │    path: str                        │
-│    overview_summary: str │     │    type: str (image/pdf)            │
-│    mandatory_conditions  │     │    is_main: bool                    │
-│      : str (JSON-serial) │     │    document_class: str (RECEIPT)    │
-│    source_file_url: str  │     │    extracted_data: dict (JSONB)     │
-│    status: str (ACTIVE)  │     │    editable_fields: dict (JSONB)    │
-│    created_at: datetime  │     │    human_edited: bool               │
-└─────────┬────────────────┘     │    change_summary: dict (JSONB)     │
-          │                      │    created_at: datetime             │
-          │ 1                    └───────────┬─────────────────────────┘
-          │                                  │ N
-┌─────────▼────────────────┐                 │
-│      policy_sections     │     ┌───────────▼─────────────────────────┐
-├──────────────────────────┤     │        travel_settlements            │
-│ PK section_id: UUID      │     ├─────────────────────────────────────┤
-│ FK policy_id → policies  │     │ PK settlement_id: UUID              │
-│    content: str          │     │ FK employee_id → employees.user_id  │
-│    metadata_data: dict   │     │ FK reim_id → reimbursements (defer) │
-│    embedding: List[float]│     │    employee_name, code, dept, rank  │
-│      (pgvector, 1536-dim)│     │    destination, departure_date      │
-│      [INACTIVE - retired]│     │    arrival_date, location, overseas │
-└──────────────────────────┘     │    receipts: List[dict] (JSONB)     │
-                                  │    totals: dict (JSONB)             │
-          ┌──────────────────────►│    all_category: List[str] (JSONB) │
-          │                       │    main_category: str               │
-          │ 1                     │    document_path: str               │
-          │                       │    created_at: datetime             │
-┌─────────┴────────────────────────────────────────────────────────────┐
-│                           reimbursements                              │
-├───────────────────────────────────────────────────────────────────────┤
-│ PK reim_id: UUID                                                      │
-│ FK user_id → employees.user_id                                        │
-│ FK policy_id → policies.policy_id (nullable)                          │
-│ FK settlement_id → travel_settlements.settlement_id (nullable)        │
-│    main_category: str                                                 │
-│    sub_category: List[str] (JSONB)                                    │
-│    employee_department: str                                           │
-│    employee_rank: int                                                 │
-│    currency: str                                                      │
-│    totals: dict (JSONB)  ← {total_requested, total_deduction,         │
-│                              net_approved, by_category}               │
-│    line_items: List[dict] (JSONB)  ← per-receipt AI verdicts         │
-│    judgment: str (APPROVE|REJECT|PARTIAL_APPROVE|MANUAL REVIEW)       │
-│    confidence: float (0.0–1.0)                                        │
-│    summary: str (2–3 sentence explanation)                            │
-│    status: str (REVIEW|APPROVED|REJECTED|PAID)                        │
-│    created_at, updated_at: datetime                                   │
-└───────────────────────────────────────────────────────────────────────┘
+│ PK policy_id: UUID       │◄──┐ │ PK document_id: UUID                │
+│    alias: str            │   │ │ FK reim_id → reimbursements         │
+│    title: str            │   │ │   (nullable)                        │
+│    reimbursable_category │   │ │ FK settlement_id → travel_settl.    │
+│      : List[str] (JSONB) │   │ │   (nullable)                        │
+│    effective_date: dt    │   │ │ FK user_id → employees.user_id      │
+│    overview_summary: str │   │ │    name: Text                       │
+│    mandatory_conditions  │   │ │    path: str                        │
+│      : str (JSON-serial) │   │ │    type: str (image|pdf)            │
+│    source_file_url: str  │   │ │    is_main: bool (default True)     │
+│    status: str (ACTIVE)  │   │ │    document_class: str (RECEIPT)    │
+│    created_at: datetime  │   │ │    extracted_data: JSONB            │
+└──────────┬───────────────┘   │ │    editable_fields: JSONB           │
+           │ 1:N (FK)          │ │    human_edited: bool               │
+           ▼                   │ │    change_summary: JSONB            │
+┌──────────────────────────┐   │ │    created_at: datetime             │
+│      policy_sections     │   │ └──────────────┬──────────────────────┘
+├──────────────────────────┤   │                │ FK settlement_id (nullable)
+│ PK section_id: UUID      │   │                │
+│ FK policy_id → policies  │   │                ▼
+│    content: Text         │   │ ┌──────────────────────────────────────┐
+│    metadata_data: JSONB  │   │ │        travel_settlements             │
+│    embedding: vector     │   │ ├──────────────────────────────────────┤
+│      (1536-dim, pgvector)│   │ │ PK settlement_id: UUID               │
+│      [ACTIVE — RAG]      │   │ │ FK reimbursement_id →                │
+└──────────────────────────┘   │ │   reimbursements.reim_id             │
+                               │ │   (deferred FK, nullable)            │
+                               │ │    employee_id: str                  │
+                               │ │    employee_name: str                │
+                               │ │    employee_code: str                │
+                               │ │    employee_department: str          │
+                               │ │    employee_rank: int                │
+                               │ │    destination: str                  │
+                               │ │    departure_date: str               │
+                               │ │    arrival_date: str                 │
+                               │ │    location: str                     │
+                               │ │    overseas: bool                    │
+                               │ │    purpose: str                      │
+                               │ │    currency: str                     │
+                               │ │    document_path: str                │
+                               │ │    receipts: JSONB                   │
+                               │ │    totals: JSONB                     │
+                               │ │    all_category: JSONB               │
+                               │ │    main_category: str                │
+                               │ │    created_at: datetime              │
+                               │ └──────────────┬───────────────────────┘
+                               │                │ FK settlement_id (nullable)
+                               │                │
+┌──────────────────────────────┴────────────────┴─────────────────────────┐
+│                           reimbursements                                  │
+├───────────────────────────────────────────────────────────────────────────┤
+│ PK reim_id: UUID                                                          │
+│ FK user_id      → employees.user_id                                       │
+│ FK policy_id    → policies.policy_id          (nullable)                  │
+│ FK settlement_id → travel_settlements.settlement_id  (nullable)           │
+│    main_category: str                                                     │
+│    sub_category: List[str] (JSONB)                                        │
+│    employee_department: str                                               │
+│    employee_rank: int (default=1)                                         │
+│    currency: str                                                          │
+│    totals: JSONB  ← {total_requested, total_deduction,                    │
+│                       net_approved, by_category}                          │
+│    line_items: JSONB  ← per-receipt AI verdicts                           │
+│    judgment: str (APPROVE|REJECT|PARTIAL_APPROVE|MANUAL REVIEW)           │
+│    confidence: float (0.0–1.0, nullable)                                  │
+│    summary: Text                                                           │
+│    status: str (REVIEW|APPROVED|REJECTED|PAID, default REVIEW)            │
+│    created_at: datetime                                                    │
+│    updated_at: datetime                                                    │
+└───────────────────────────────────────────────────────────────────────────┘
+
+FK SUMMARY (all enforced at DB level unless noted):
+  reimbursements.user_id             → employees.user_id
+  reimbursements.policy_id           → policies.policy_id          (nullable)
+  reimbursements.settlement_id       → travel_settlements.settlement_id (nullable)
+  policy_sections.policy_id          → policies.policy_id
+  travel_settlements.reimbursement_id → reimbursements.reim_id     (deferred FK, nullable)
+  supporting_documents.user_id       → employees.user_id
+  supporting_documents.settlement_id → travel_settlements.settlement_id (nullable)
+  supporting_documents.reim_id       → reimbursements.reim_id      (nullable)
+
+  travel_settlements.employee_id — plain str field, no FK constraint;
+    denormalized copy of user_id written at upload time for PDF template rendering.
 
 3NF RATIONALE:
 - All non-key fields depend solely on the primary key of their table.
-- Employee attributes (rank, department) are stored once in `employees`
-  and referenced by FK in reimbursements — no attribute duplication.
+- Employee snapshot fields (employee_rank, employee_department) in reimbursements
+  and travel_settlements capture values at submission time — correct for audit
+  immutability, not a 3NF violation (they record historical state, not live references).
 - Policy conditions stored once in `policies.mandatory_conditions`;
-  compliance agent reads it per analysis — no denormalization.
+  compliance agent reads it per analysis — no ongoing denormalization.
 - JSONB columns (receipts, line_items, extracted_data) are treated as
   atomic values: they store AI-generated structured payloads whose
   internal schema is owned by the agent layer, not the relational layer.
@@ -509,7 +568,7 @@ The following five core features represent the complete scope of the Reclaim MVP
 |---|---|---|
 | **1** | **Multi-Receipt OCR Submission** | Employees upload up to 10 receipt files (JPEG, PNG, PDF) via the Employee Portal. The Document Agent processes them in parallel (up to 4 concurrent LLM workers) — routing images to Llama 3.2 Vision and PDFs to GLM-5.1 in JSON mode. Each receipt is extracted into a structured JSON payload (merchant, date, amount, category, confidence, anomaly flags) and persisted to `supporting_documents`. Results are aggregated into a `travel_settlements` record accessible via the verification screen. |
 | **2** | **Side-by-Side Verification with Fraud Detection** | After OCR, employees review extracted data in a dual-panel interface: the left panel shows an editable pre-filled form; the right panel shows the original document. If an employee modifies any field (particularly the total amount), the system calls the `change_summary` detector, sets `human_edited=True`, records the original vs. edited values, and assigns an `overall_risk` level (HIGH/MEDIUM/LOW). This audit record is surfaced to HR during claim review. |
-| **3** | **Policy Studio (HR Policy Upload)** | HR users upload one or more PDF policy documents via the Policy Studio. The Policy Agent runs a 4-node LangGraph pipeline: converts PDFs to markdown, extracts reimbursable categories and a 150-word overview summary via GLM-5.1, then extracts per-category mandatory conditions (deadlines, caps, eligibility rules) via a second GLM-5.1 call. All results are stored as a structured `policies` record (status: ACTIVE/DRAFT/ARCHIVED) accessible to the compliance agent at evaluation time. |
+| **3** | **Policy Studio (HR Policy Upload)** | HR users upload one or more PDF policy documents via the Policy Studio. The Policy Agent runs a 5-node LangGraph pipeline: converts PDFs to markdown, extracts reimbursable categories and a 150-word overview summary via GLM-5.1, extracts per-category mandatory conditions via a second GLM-5.1 call, persists the `policies` record (status: ACTIVE/DRAFT/ARCHIVED), then batch-embeds all markdown chunks via text-embedding-3-small and writes `PolicySection` rows with 1536-dim pgvector embeddings — enabling the compliance agent's RAG tool to search policy text at evaluation time. |
 | **4** | **AI-Driven Compliance Evaluation** | After employee verification, the Compliance Agent evaluates the submitted settlement basket against the active policy. Per-receipt ReAct agents (parallel, ≤4 workers) check late submission, category eligibility, rank-based caps, and mandatory conditions, producing per-receipt `line_items` with status, approved amount, and audit notes. A final ReAct agent synthesizes an overall `judgment` (APPROVE / REJECT / PARTIAL\_APPROVE / MANUAL REVIEW) with a confidence score (0.0–1.0) and a 2–3 sentence summary. Results are saved as a `reimbursements` record. |
 | **5** | **HR Decision Dashboard ("Efficiency by Exception")** | The HR Portal triage dashboard surfaces claims pre-bucketed by AI judgment: "Requires Attention" (REJECT, MANUAL REVIEW, FLAG) and "Passed AI Review" (APPROVE). For each claim, HR accesses a full evidence panel: employee identity, receipt line items, policy flags, human-edit audit trail, AI confidence score, and financial summary. HR issues the final decision (Force Full Approval, Approve Adjusted Amount, or Confirm Rejection) via `PATCH /reimbursements/{id}/status`. |
 
@@ -608,7 +667,7 @@ The following external tools and services are verified against the live source c
 | **LangGraph 1.1.5** | Stateful agent graph orchestration for Workflow 1 (Policy Agent) and Workflow 3 (Compliance Agent). Manages node-to-node state transitions and error propagation. | **Risk**: LangGraph API changes in minor versions. **Mitigation**: Version pinned in `pyproject.toml`. |
 | **LangSmith** | Distributed tracing and observability for all LLM calls. Provides per-trace latency, token counts, and node-level debugging via the `um_hackathon` project dashboard. | **Risk**: Optional dependency — tracing is disabled if `LANGCHAIN_TRACING_V2` is not set, so production can run without it. **Mitigation**: All critical logic is independent of LangSmith; it is observability-only. |
 | **PyMuPDF4LLM 0.27.2.2** | Converts uploaded PDF policy documents and PDF receipts to markdown text for LLM ingestion. Handles multi-page documents, embedded images, and tables. | **Risk**: Complex PDF layouts (e.g., scanned PDFs without text layers) may produce degraded markdown. **Mitigation**: Text extraction falls back gracefully; if markdown is empty, the agent logs a warning and the document is flagged as unreadable. |
-| **PostgreSQL 16 + pgvector** | Primary relational database for all persistent state. pgvector extension is present in the schema (`policy_sections.embedding`) but the RAG pipeline consuming it has been retired as of 2026-04-23. | **Risk**: Docker container downtime causes total system unavailability. **Mitigation**: `/health` endpoint verifies DB connectivity on every request; FastAPI lifespan hook initializes the DB connection pool on startup. |
+| **PostgreSQL 16 + pgvector** | Primary relational database for all persistent state. pgvector extension is actively used: `policy_sections.embedding` stores 1536-dim vectors populated by the Policy Agent and queried by the compliance agent's RAG tool via cosine-similarity search. | **Risk**: Docker container downtime causes total system unavailability. **Mitigation**: `/health` endpoint verifies DB connectivity on every request; FastAPI lifespan hook initializes the DB connection pool on startup. |
 | **xhtml2pdf + Jinja2** | Renders the Business Travel Settlement HTML template (`reimbursement_template.html`) into a downloadable PDF for record-keeping and finance audit use. | **Risk**: Complex HTML layouts may not render correctly in all PDF contexts. **Mitigation**: Template is designed with print-safe CSS and tested against the reimbursement data schema. |
 
 ---
@@ -659,19 +718,7 @@ This appendix documents every verified discrepancy between the intended behavior
 
 ---
 
-### CONFLICT 1: `search_policy_rag` Tool is an Empty Stub
-
-**Intended (core_workflow.md)**: The AI agent performs policy checks including category eligibility and mandatory condition verification.
-
-**Actual (code)**: The compliance agent's ReAct prompts specify `search_policy_rag(query)` as an available tool for both the per-receipt analysis agents and the final judgment agent. However, `backend/engine/tools/rag_tool.py` is an empty stub — the function is registered but returns no results. The RAG pipeline (policy section embedding + vector search) was retired on 2026-04-23 per CLAUDE.md.
-
-**Impact**: The compliance agent cannot retrieve specific policy text on demand via RAG. Instead, it relies on the `mandatory_conditions` JSON extracted at policy upload time (which is injected directly into the prompt context) and the GLM-5.1 model's parametric knowledge. For well-structured policies, this is functionally equivalent. For edge cases requiring precise clause lookup, the agent may produce less accurate verdicts.
-
-**Resolution**: The `mandatory_conditions` JSON (extracted by the Policy Agent at upload time) is the operational replacement for RAG. All policy conditions reachable via RAG are now pre-materialized into the `policies.mandatory_conditions` column and injected directly into the compliance prompt. The `search_policy_rag` tool call in the prompt is effectively a no-op that the LLM attempts but receives empty results for.
-
----
-
-### CONFLICT 2: Automatic PDF Generation After HR Approval
+### CONFLICT 1: Automatic PDF Generation After HR Approval
 
 **Intended (core_workflow.md)**: "Once HR submits their decision: [...] PDF Generation — The system generates the Official Claim Form (PDF). This document contains the final approved amounts and the HR/AI audit notes."
 
@@ -683,7 +730,7 @@ This appendix documents every verified discrepancy between the intended behavior
 
 ---
 
-### CONFLICT 3: Policy Mandatory Condition Editing After Upload
+### CONFLICT 2: Policy Mandatory Condition Editing After Upload
 
 **Intended (core_workflow.md)**: "The HR Also can [...] edit, add, and delete the mandatory constraint (SOP Checklist)."
 
@@ -695,7 +742,7 @@ This appendix documents every verified discrepancy between the intended behavior
 
 ---
 
-### CONFLICT 4: Policy Versioning
+### CONFLICT 3: Policy Versioning
 
 **Intended (core_workflow.md)**: "The HR Also can do versioning of the policy."
 
@@ -707,7 +754,7 @@ This appendix documents every verified discrepancy between the intended behavior
 
 ---
 
-### CONFLICT 5: Rank-Based Amount Caps Require Policy Document Grounding
+### CONFLICT 4: Rank-Based Amount Caps Require Policy Document Grounding
 
 **Intended (core_workflow.md / template)**: "Employees have their own 'rank' within the company's operational workplace for different amount of reimbursements allowed depending on such 'ranks'."
 
@@ -719,19 +766,7 @@ This appendix documents every verified discrepancy between the intended behavior
 
 ---
 
-### CONFLICT 6: Policy Agent 4-Node vs. 5-Node Pipeline
-
-**Intended (CLAUDE.md, authoritative)**: "LangGraph 4-node pipeline: process\_pdfs → extract\_categories\_and\_summary → extract\_conditions → save\_to\_db"
-
-**Actual (code)**: The `policy_agent.py` source code contains an `embed_and_save_sections` node that previously handled PolicySection embedding. Per CLAUDE.md: "Writes: Policy row only (PolicySection rows no longer written; embedding column dropped)." This node may exist as dead code or be conditionally bypassed.
-
-**Impact**: PolicySection rows are no longer written. The `policy_sections` table exists in the schema but is unpopulated by the current Policy Agent. The `policy_sections.embedding` column (pgvector) is also structurally present but inactive. No embedding model calls are made anywhere in the live codebase.
-
-**Resolution**: The 4-node pipeline description in CLAUDE.md reflects the current operational behavior. The `embed_and_save_sections` node is a retired artifact from the RAG-enabled version of the system. The migration documented in CLAUDE.md (`DROP TABLE IF EXISTS supporting_documents_embeddings; ALTER TABLE policy_sections DROP COLUMN IF EXISTS embedding;`) should be run to align the database schema with the current code.
-
----
-
-### CONFLICT 7: Alcohol Detection and Specific Item-Level Checks
+### CONFLICT 5: Alcohol Detection and Specific Item-Level Checks
 
 **Intended (core_workflow.md)**: "The AI runs a Policy Check & Others Check (e.g., 'Is there alcohol on this receipt?', 'Does the hotel exceed the RM 500 limit?')."
 
