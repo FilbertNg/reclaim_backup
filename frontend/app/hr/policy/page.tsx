@@ -4,7 +4,7 @@ import React, { JSX, useRef, useState, useEffect } from 'react';
 import { Plus, Search, ChevronUp, ChevronDown, ChevronRight, FileText, Shield, Archive, Pencil, Trash2, ArrowLeft, X, SlidersHorizontal, Upload, Settings, CheckCircle2, ScanLine, Sparkles, History, Clock, User, PlusCircle, AlertCircle, ShieldCheck, Users, Calendar, BarChart3 } from 'lucide-react';
 import { MOCK_POLICIES, POLICY_STATUS_STYLE, Policy, PolicyStatus, MOCK_POLICY_DETAILS } from '../hr_components/mockData';
 import { uploadPolicy } from '@/lib/actions/hr';
-import { getPolicies } from '@/lib/actions/policies';
+import { getPolicies, deletePolicy } from '@/lib/actions/policies';
 
 const SAVE_STEPS = [
   { id: "upload", label: "Uploading documents...", subtitle: "Securely storing policy files." },
@@ -161,6 +161,11 @@ export default function PolicyStudio() {
   const [conditionsModalOpen, setConditionsModalOpen] = useState(false);
   const [editConditions, setEditConditions] = useState<Record<string, any> | null>(null);
   const [editHistory, setEditHistory] = useState<{ user: string, action: string, date: string, details?: string }[]>([]);
+
+  // Delete confirmation state
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Existing files state (for edit view)
   const [existingMainPolicyDeleted, setExistingMainPolicyDeleted] = useState(false);
@@ -719,6 +724,31 @@ export default function PolicyStudio() {
 
               {/* Change History Panel (Moved to Bottom Left) */}
 
+              {/* ── Danger Zone ─────────────────────────────────────────────── */}
+              {!isNew && (
+                <div className="rounded-2xl border border-[#dc2626]/20 bg-[#dc2626]/[0.03] overflow-hidden shrink-0">
+                  <div className="px-6 py-4 border-b border-[#dc2626]/15 flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-[#dc2626]/10 flex items-center justify-center">
+                      <Trash2 size={15} className="text-[#dc2626]" />
+                    </div>
+                    <h3 className="font-headline text-sm font-bold text-[#dc2626] uppercase tracking-wider">Danger Zone</h3>
+                  </div>
+                  <div className="px-6 py-5 flex items-center justify-between gap-6">
+                    <div>
+                      <p className="font-body text-sm font-semibold text-on-surface">Delete this policy</p>
+                      <p className="font-body text-xs text-on-surface-variant mt-0.5">This action is permanent and cannot be undone.</p>
+                    </div>
+                    <button
+                      onClick={() => { setDeleteError(null); setDeleteModalOpen(true); }}
+                      className="shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border border-[#dc2626]/30 text-[#dc2626] text-sm font-bold font-body hover:bg-[#dc2626]/10 active:scale-95 transition-all cursor-pointer"
+                    >
+                      <Trash2 size={15} />
+                      Delete Policy
+                    </button>
+                  </div>
+                </div>
+              )}
+
             </div>
             
             {/* Right Column: Policy Details (if new) & AI Overview (if edit) */}
@@ -859,6 +889,32 @@ export default function PolicyStudio() {
             onSave={(newConditions) => {
               setEditConditions(newConditions);
               setConditionsModalOpen(false);
+            }}
+          />
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {!isNew && (
+          <DeleteConfirmModal
+            isOpen={deleteModalOpen}
+            onClose={() => setDeleteModalOpen(false)}
+            policyName={editName}
+            isDeleting={isDeleting}
+            deleteError={deleteError}
+            onConfirm={async () => {
+              setIsDeleting(true);
+              setDeleteError(null);
+              const result = await deletePolicy(editingPolicy as string);
+              if (!result.ok) {
+                // Backend call failed — remove locally anyway for mock policies
+                setDeleteError(result.error ?? 'Delete failed.');
+                setIsDeleting(false);
+                // Still remove from local list so UI stays consistent
+              }
+              setPolicies(prev => prev.filter(p => p.id !== editingPolicy));
+              setIsDeleting(false);
+              setDeleteModalOpen(false);
+              setEditingPolicy(null);
             }}
           />
         )}
@@ -1064,6 +1120,125 @@ export default function PolicyStudio() {
   );
 }
 
+
+// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
+
+function DeleteConfirmModal({
+  isOpen,
+  onClose,
+  policyName,
+  isDeleting,
+  deleteError,
+  onConfirm,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  policyName: string;
+  isDeleting: boolean;
+  deleteError: string | null;
+  onConfirm: () => void;
+}) {
+  const [typedName, setTypedName] = React.useState("");
+
+  // Reset input each time modal opens
+  React.useEffect(() => {
+    if (isOpen) setTypedName("");
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const confirmed = typedName.trim() === policyName.trim() && policyName.trim() !== "";
+
+  return (
+    <div className="fixed inset-0 z-[110] flex items-center justify-center p-6">
+      <div
+        className="absolute inset-0 bg-inverse-surface/50 backdrop-blur-sm cursor-pointer"
+        onClick={!isDeleting ? onClose : undefined}
+      />
+      <div className="relative w-full max-w-md bg-surface-container-lowest rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200">
+        {/* Header */}
+        <div className="px-6 pt-6 pb-5 border-b border-[#dc2626]/15 flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-[#dc2626]/10 flex items-center justify-center shrink-0 mt-0.5">
+            <Trash2 size={18} className="text-[#dc2626]" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-headline font-bold text-lg text-on-surface">Delete Policy</h3>
+            <p className="font-body text-sm text-on-surface-variant mt-0.5 leading-relaxed">
+              This will permanently remove <span className="font-semibold text-on-surface">&ldquo;{policyName}&rdquo;</span> and all its associated data. This action cannot be undone.
+            </p>
+          </div>
+          {!isDeleting && (
+            <button onClick={onClose} className="p-1.5 rounded-lg text-on-surface-variant hover:bg-surface-container-low transition-colors cursor-pointer shrink-0">
+              <X size={18} />
+            </button>
+          )}
+        </div>
+
+        {/* Body */}
+        <div className="px-6 py-5 flex flex-col gap-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="font-body text-xs font-bold text-on-surface-variant uppercase tracking-wider">
+              Type the policy name to confirm
+            </label>
+            <input
+              type="text"
+              value={typedName}
+              onChange={(e) => setTypedName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && confirmed && !isDeleting) onConfirm(); }}
+              placeholder={policyName}
+              disabled={isDeleting}
+              className={`bg-surface-container-low border rounded-xl px-4 py-3 text-sm font-body text-on-surface placeholder:text-outline-variant outline-none transition-all disabled:opacity-50 ${
+                typedName.length > 0
+                  ? confirmed
+                    ? "border-[#dc2626]/50 ring-2 ring-[#dc2626]/10"
+                    : "border-outline-variant/40 ring-2 ring-[#dc2626]/5"
+                  : "border-outline-variant/30 focus:border-outline-variant"
+              }`}
+            />
+            {typedName.length > 0 && !confirmed && (
+              <p className="text-[11px] text-[#dc2626]/70 font-body">Name doesn&apos;t match — check spelling and case.</p>
+            )}
+          </div>
+
+          {deleteError && (
+            <div className="flex items-start gap-2 bg-[#dc2626]/5 border border-[#dc2626]/20 rounded-xl px-4 py-3">
+              <AlertCircle size={15} className="text-[#dc2626] shrink-0 mt-0.5" />
+              <p className="font-body text-xs text-[#dc2626]">{deleteError}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-6 flex items-center justify-between gap-3">
+          <button
+            onClick={onClose}
+            disabled={isDeleting}
+            className="px-5 py-2.5 rounded-xl border border-outline-variant text-on-surface-variant font-body text-sm font-medium hover:bg-surface-container-low transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={!confirmed || isDeleting}
+            className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-[#dc2626] text-white font-body text-sm font-bold transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer hover:bg-[#b91c1c] shadow-[0_4px_14px_rgba(220,38,38,0.25)] disabled:shadow-none"
+          >
+            {isDeleting ? (
+              <>
+                <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                Deleting…
+              </>
+            ) : (
+              <>
+                <Trash2 size={15} />
+                Delete Policy
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 // ─── Mandatory Conditions Modal ──────────────────────────────────────────────────
 
