@@ -95,8 +95,8 @@ export function HrProcessingScreen({ currentStep, onBack }: { currentStep: numbe
 
                     <div>
                       <p className={`font-semibold text-sm leading-tight font-headline ${isActive ? "text-primary" :
-                          isCompleted ? "text-on-surface" :
-                            "text-on-surface-variant/40"
+                        isCompleted ? "text-on-surface" :
+                          "text-on-surface-variant/40"
                         }`}>
                         {step.label}
                       </p>
@@ -248,8 +248,9 @@ export default function PolicyStudio() {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
-  function parseMandatoryConditions(raw: string | undefined | null): Record<string, any> | null {
+  function parseMandatoryConditions(raw: string | Record<string, any> | undefined | null): Record<string, any> | null {
     if (!raw) return null;
+    if (typeof raw === 'object') return raw as Record<string, any>;
     try {
       const parsed = JSON.parse(raw);
       if (typeof parsed === 'object' && parsed !== null) return parsed;
@@ -635,7 +636,7 @@ export default function PolicyStudio() {
 
                 {mainPolicyFile ? (
                   <div className="flex flex-col gap-4 border border-outline-variant/30 rounded-2xl overflow-hidden bg-surface-container-lowest">
-                    {mainPolicyFile.type === "application/pdf" ? (
+                    {mainPolicyFile.type === "application/pdf" && previewUrl ? (
                       <iframe
                         src={previewUrl}
                         className="w-full h-[400px] border-b border-outline-variant/20"
@@ -854,7 +855,7 @@ export default function PolicyStudio() {
               )}
 
               {/* AI Overview Summary (Beautified) */}
-              {!isNew && (editOverviewSummary || editConditions) && (
+              {!isNew && (
                 <div className="bg-surface-container-lowest rounded-3xl shadow-[0_20px_50px_rgba(44,47,49,0.08)] border border-primary/20 overflow-hidden flex flex-col shrink-0 animate-in fade-in slide-in-from-right-4 duration-700">
                   <div className="p-5 bg-gradient-to-r from-primary/15 via-primary/5 to-transparent border-b border-primary/10 flex items-center justify-between">
                     <div className="flex items-center gap-3">
@@ -888,42 +889,47 @@ export default function PolicyStudio() {
                       );
                     })()}
 
-                    {editConditions && (
-                      <>
-                        <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent w-full" />
+                    <>
+                      <div className="h-px bg-gradient-to-r from-transparent via-outline-variant/20 to-transparent w-full" />
 
-                        <div>
-                          <div className="flex items-center justify-between mb-5">
-                            <h4 className="font-headline text-sm font-bold text-on-surface uppercase tracking-wider">Mandatory Conditions</h4>
-                            <div className="px-2 py-0.5 bg-surface-container-high rounded-full text-[10px] font-bold text-on-surface-variant uppercase">
-                              Review Required
-                            </div>
-                          </div>
-
-                          <div className="flex flex-col gap-4">
-                            {Object.entries(editConditions).slice(0, 3).map(([category, details]: [string, any]) => (
-                              <div key={category} className="bg-surface-container-low/40 rounded-2xl p-5 border border-outline-variant/10 hover:bg-surface-container-low transition-colors group">
-                                <p className="font-headline font-bold text-sm text-on-surface mb-3 flex items-center gap-2">
-                                  <div className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />
-                                  {category}
-                                </p>
-                                <PremiumBulletList items={details.condition} />
-                              </div>
-                            ))}
-
-                            {Object.entries(editConditions).length > 3 && (
-                              <button
-                                onClick={() => setConditionsModalOpen(true)}
-                                className="w-full mt-2 py-4 rounded-2xl text-sm text-primary font-bold bg-primary/[0.04] hover:bg-primary/[0.08] border border-primary/10 transition-all flex items-center justify-center gap-3 cursor-pointer group"
-                              >
-                                <span>View & Edit All {Object.entries(editConditions).length} Categories</span>
-                                <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
-                              </button>
-                            )}
+                      <div>
+                        <div className="flex items-center justify-between mb-5">
+                          <h4 className="font-headline text-sm font-bold text-on-surface uppercase tracking-wider">Mandatory Conditions</h4>
+                          <div className="px-2 py-0.5 bg-surface-container-high rounded-full text-[10px] font-bold text-on-surface-variant uppercase">
+                            Review Required
                           </div>
                         </div>
-                      </>
-                    )}
+
+                        <div className="flex flex-col gap-4">
+                          {editConditions && Object.entries(editConditions).length > 0 ? (
+                            <>
+                              {Object.entries(editConditions).slice(0, 3).map(([category, details]: [string, any]) => (
+                                <div key={category} className="bg-surface-container-low/40 rounded-2xl p-5 border border-outline-variant/10 hover:bg-surface-container-low transition-colors group">
+                                  <h1 className="font-headline font-bold text-sm text-on-surface mb-3 flex items-center gap-2">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-primary/40 group-hover:bg-primary transition-colors" />
+                                    {category}
+                                  </h1>
+                                  <PremiumBulletList items={details.condition ?? []} />
+                                </div>
+                              ))}
+                              {Object.entries(editConditions).length > 3 && (
+                                <button
+                                  onClick={() => setConditionsModalOpen(true)}
+                                  className="w-full mt-2 py-4 rounded-2xl text-sm text-primary font-bold bg-primary/[0.04] hover:bg-primary/[0.08] border border-primary/10 transition-all flex items-center justify-center gap-3 cursor-pointer group"
+                                >
+                                  <span>View & Edit All {Object.entries(editConditions).length} Categories</span>
+                                  <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                                </button>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-on-surface-variant/60 italic font-body">
+                              No mandatory conditions have been extracted for this policy.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </>
                   </div>
                 </div>
               )}
@@ -1070,8 +1076,8 @@ export default function PolicyStudio() {
                         key={status}
                         onClick={() => setActiveFilter(status)}
                         className={`px-6 py-2 rounded-lg transition-all font-medium text-sm cursor-pointer ${activeFilter === status
-                            ? "bg-surface-container-lowest shadow-[0_4px_20px_rgba(44,47,49,0.04)] text-primary"
-                            : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50"
+                          ? "bg-surface-container-lowest shadow-[0_4px_20px_rgba(44,47,49,0.04)] text-primary"
+                          : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest/50"
                           }`}
                       >
                         {status}
@@ -1250,10 +1256,10 @@ function DeleteConfirmModal({
               placeholder={policyName}
               disabled={isDeleting}
               className={`bg-surface-container-low border rounded-xl px-4 py-3 text-sm font-body text-on-surface placeholder:text-outline-variant outline-none transition-all disabled:opacity-50 ${typedName.length > 0
-                  ? confirmed
-                    ? "border-[#dc2626]/50 ring-2 ring-[#dc2626]/10"
-                    : "border-outline-variant/40 ring-2 ring-[#dc2626]/5"
-                  : "border-outline-variant/30 focus:border-outline-variant"
+                ? confirmed
+                  ? "border-[#dc2626]/50 ring-2 ring-[#dc2626]/10"
+                  : "border-outline-variant/40 ring-2 ring-[#dc2626]/5"
+                : "border-outline-variant/30 focus:border-outline-variant"
                 }`}
             />
             {typedName.length > 0 && !confirmed && (
