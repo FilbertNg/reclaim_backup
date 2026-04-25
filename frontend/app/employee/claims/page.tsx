@@ -27,9 +27,7 @@ import type {
   DbEmployee,
 } from "../../../src/types/claim";
 
-// ─── Mock data (swap for real API calls at backend handoff) ───────────────────
-import { POLICY_DATA, type MainCategoryConfig } from "../../../src/mocks/policyData";
-import { MOCK_DB_DATA, MOCK_OCR_RECEIPTS } from "../../../src/mocks/claimMockData";
+
 
 // ─── Screen components ────────────────────────────────────────────────────────
 import { ProcessingScreen } from "./_components/ProcessingScreen";
@@ -679,7 +677,6 @@ export default function CaptureReceiptPage() {
     const analyzeResult = await analyzeCompliance({
       settlement_id: settlementId,
       policy_id: policy.policy_id,
-      all_category: [mainCategory],
       document_ids: documentIds,
     });
 
@@ -764,7 +761,14 @@ export default function CaptureReceiptPage() {
         {stage === "verification" && (
           <>
             <VerificationScreen
-              dbData={employeeData ?? MOCK_DB_DATA}
+              dbData={employeeData ?? {
+                entityName: "Reclaim",
+                employeeName: "Unknown",
+                employeeNumber: "",
+                position: "",
+                location: "",
+                department: "",
+              }}
               mainCategory={mainCategory}
               ocrReceipts={ocrReceipts}
               claimContext={claimContext}
@@ -772,6 +776,7 @@ export default function CaptureReceiptPage() {
               onReceiptsChange={setOcrReceipts}
               onBack={() => setStage("form")}
               onSubmit={handleSubmit}
+              isSubmitting={isSubmitting}
             />
             {submitError && (
               <p className="text-sm text-error font-body mt-2 text-center">{submitError}</p>
@@ -799,7 +804,7 @@ export default function CaptureReceiptPage() {
               />
               {selectedMain && (
                 <p className="text-xs text-on-surface-variant font-body ml-1">
-                  Covers: {selectedMain.reimbursable_category.slice(0, 3).join(", ")} &amp; more.
+                  Covers: {selectedMain.reimbursable_categories.slice(0, 3).join(", ")} &amp; more.
                 </p>
               )}
             </div>

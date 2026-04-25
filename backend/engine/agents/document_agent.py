@@ -5,18 +5,22 @@ import concurrent.futures
 from pathlib import Path
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, date
 
 import pymupdf4llm
 from langchain_core.messages import HumanMessage
 from sqlmodel import Session, select
 
-from core.models import SupportingDocument, Policy, User, TravelSettlement
+from core.models import (
+    SupportingDocument, Policy, User, TravelSettlement,
+    SettlementCategory, SettlementReceipt,
+)
 from engine.llm import get_vision_llm, get_text_llm
 from engine.prompts.document_prompts import RECEIPT_OCR_PROMPT, RECEIPT_OCR_PROMPT_WITH_CATEGORIES
 from engine.tools.generate_reimbursement_template import generate_reimbursement_template  # noqa: F401 (re-exported)
 
 # ---------------------------------------------------------------------------
-# Category → expense column keyword sets
+# Category -> expense column keyword sets
 # ---------------------------------------------------------------------------
 _TRANSPORT_KW = {
     "transport", "travel", "air", "flight", "taxi", "uber", "grab",
@@ -183,7 +187,7 @@ def _build_warnings(extracted_data: dict, employee_name: str, is_pdf: bool = Fal
 
 
 # ---------------------------------------------------------------------------
-# Category → expense column mapper
+# Category -> expense column mapper
 # ---------------------------------------------------------------------------
 
 def _map_category_to_column(category: str) -> str:
@@ -235,15 +239,42 @@ def _process_single_receipt_llm(
 # ---------------------------------------------------------------------------
 
 def _get_active_categories(session: Session) -> List[str]:
-    policies = session.exec(select(Policy).where(Policy.status == "ACTIVE")).all()
+    from core.enums import PolicyStatus
+    policies = session.exec(select(Policy).where(Policy.status == PolicyStatus.ACTIVE)).all()
     seen = set()
     categories = []
     for p in policies:
-        for cat in (p.reimbursable_category or []):
-            if cat not in seen:
-                seen.add(cat)
-                categories.append(cat)
+        # Fetch from normalized table
+        cats = session.exec(
+            select(Policy).where(Policy.policy_id == p.policy_id)
+        ).first()
+        # Actually we need PolicyReimbursableCategory
+        from core.models import PolicyReimbursableCategory
+        prc = session.exec(
+            select(PolicyReimbursableCategory).where(
+                PolicyReimbursableCategory.policy_id == p.policy_id
+            )
+        ).all()
+        for c in prc:
+            if c.category not in seen:
+                seen.add(c.category)
+                categories.append(c.category)
     return categories
+
+
+# ---------------------------------------------------------------------------
+# Helper to parse dates from OCR strings
+# ---------------------------------------------------------------------------
+
+def _parse_date_str(date_str: Optional[str]) -> Optional[date]:
+    if not date_str or date_str == _NFIR or date_str == "":
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(date_str, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -317,12 +348,10 @@ def process_receipts(
 
     user = session.exec(select(User).where(User.user_id == UUID(user_id))).first()
     user_code = user.user_code if user and user.user_code else ""
-    department = user.department if user else ""
-    rank = user.rank if user else None
 
     destination = ""
-    departure_date = ""
-    arrival_date = ""
+    departure_date_str = ""
+    arrival_date_str = ""
     location = ""
     overseas = None
 
@@ -330,10 +359,10 @@ def process_receipts(
         ed = r["extracted_data"]
         if not destination and ed.get("destination") and ed.get("destination") != _NFIR:
             destination = ed.get("destination")
-        if not departure_date and ed.get("departure_date") and ed.get("departure_date") != _NFIR:
-            departure_date = ed.get("departure_date")
-        if not arrival_date and ed.get("arrival_date") and ed.get("arrival_date") != _NFIR:
-            arrival_date = ed.get("arrival_date")
+        if not departure_date_str and ed.get("departure_date") and ed.get("departure_date") != _NFIR:
+            departure_date_str = ed.get("departure_date")
+        if not arrival_date_str and ed.get("arrival_date") and ed.get("arrival_date") != _NFIR:
+            arrival_date_str = ed.get("arrival_date")
         if not location and ed.get("location") and ed.get("location") != _NFIR:
             location = ed.get("location")
         if overseas is None and ed.get("overseas") is not None:
@@ -411,37 +440,54 @@ def process_receipts(
         "name": employee_name,
         "id": user_id,
         "user_code": user_code,
-        "department": department,
-        "rank": rank,
+        "department": "",
+        "rank": user.rank if user else None,
         "destination": destination,
-        "departure_date": departure_date,
-        "arrival_date": arrival_date,
+        "departure_date": departure_date_str,
+        "arrival_date": arrival_date_str,
         "location": location,
         "overseas": overseas,
         "purpose": purpose,
     }
 
-    # Save TravelSettlement and link SupportingDocuments
+    # Save TravelSettlement with flat columns and user_id FK
     settlement = TravelSettlement(
-        all_category=all_category,
+        user_id=UUID(user_id),
         main_category=main_category,
-        employee_name=employee_name,
-        employee_id=user_id,
-        employee_code=user_code,
-        employee_department=department,
-        employee_rank=rank,
         destination=destination,
-        departure_date=departure_date,
-        arrival_date=arrival_date,
+        departure_date=_parse_date_str(departure_date_str),
+        arrival_date=_parse_date_str(arrival_date_str),
         location=location,
         overseas=overseas,
         purpose=purpose,
         currency=currency,
-        receipts=receipts + skipped_receipts,
-        totals=totals,
+        total_claimed_amount=totals.get("grand_total", 0.0),
     )
     session.add(settlement)
     session.flush()
+
+    # Bulk insert SettlementCategory rows
+    for cat in all_category:
+        sc = SettlementCategory(
+            settlement_id=settlement.settlement_id,
+            category=cat,
+        )
+        session.add(sc)
+
+    # Bulk insert SettlementReceipt rows
+    for r in receipts + skipped_receipts:
+        doc_id_str = r.get("document_id", "")
+        doc_uuid = UUID(doc_id_str) if doc_id_str else None
+        sr = SettlementReceipt(
+            settlement_id=settlement.settlement_id,
+            document_id=doc_uuid,
+            merchant_name=(r.get("extracted_data") or {}).get("merchant_name"),
+            receipt_date=_parse_date_str(r.get("date")),
+            category=r.get("category"),
+            claimed_amount=r.get("amount"),
+            currency=currency,
+        )
+        session.add(sr)
 
     # Link all SupportingDocuments to this settlement
     doc_uuid_list = [UUID(did) for did in document_ids]

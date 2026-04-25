@@ -258,7 +258,7 @@ export default function PolicyStudio() {
         lastModified: p.effective_date
           ? new Date(p.effective_date).toLocaleDateString("en-MY", { month: "short", day: "numeric", year: "numeric" })
           : "",
-        status: (p.status === "ACTIVE" ? "Active" : p.status === "EXPIRED" ? "Expired" : "Active") as PolicyStatus,
+        status: (p.status === "ACTIVE" ? "Active" : p.status === "DEPRECATED" ? "Expired" : "Impending") as PolicyStatus,
         icon: FileText,
         aiConditions: undefined,
         history: [],
@@ -383,7 +383,7 @@ export default function PolicyStudio() {
             lastModified: p.effective_date
               ? new Date(p.effective_date).toLocaleDateString("en-MY", { month: "short", day: "numeric", year: "numeric" })
               : "",
-            status: (p.status === "ACTIVE" ? "Active" : p.status === "EXPIRED" ? "Expired" : "Active") as PolicyStatus,
+            status: (p.status === "ACTIVE" ? "Active" : p.status === "DEPRECATED" ? "Expired" : "Impending") as PolicyStatus,
             icon: FileText,
           }));
           setPolicies([...mapped, ...MOCK_POLICIES]);
