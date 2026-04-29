@@ -49,7 +49,7 @@ def list_policies(
             "policy_id": str(p.policy_id),
             "alias": p.alias,
             "title": p.title,
-            "reimbursable_categories": [c.category for c in cats],
+            "reimbursable_categories": cats,
             "overview_summary": p.overview_summary,
             "mandatory_conditions": p.mandatory_conditions,
             "status": ((p.status.value if p.status and hasattr(p.status, "value") else p.status) if p.status and hasattr(p.status, "value") else p.status),
