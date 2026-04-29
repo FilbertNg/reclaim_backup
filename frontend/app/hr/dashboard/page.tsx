@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { TrendingUp, ChevronRight } from "lucide-react";
+import { TrendingUp, ChevronRight, CheckCircle2 } from "lucide-react";
 import type { Claim } from "@/lib/api/types";
 import { getHRClaims } from "@/lib/actions/hr";
 import { ClaimRow } from "@/components/claims/ClaimRow";
