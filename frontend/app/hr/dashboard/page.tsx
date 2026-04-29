@@ -149,7 +149,7 @@ function uniqueValues<K extends keyof Claim>(claims: Claim[], key: K): string[] 
 
 /** Parse a dollar-string like "$1,450.00" → number */
 function parseDollar(s: string): number {
-  return parseFloat(s.replace(/[$,]/g, "")) || 0;
+  return parseFloat(s.replace(/MYR\s?|[$,]/gi, "")) || 0;
 }
 
 interface FilterState {
@@ -281,7 +281,7 @@ function FilterPanel({
             <div className="flex items-center bg-surface-container-lowest rounded-lg
                             ring-1 ring-outline-variant/20 focus-within:ring-primary/40
                             px-3 py-2 w-28 transition-all">
-              <span className="text-xs text-on-surface-variant mr-1">$</span>
+              <span className="text-xs text-on-surface-variant mr-1">MYR</span>
               <input
                 type="number"
                 min={0}
@@ -295,7 +295,7 @@ function FilterPanel({
             <div className="flex items-center bg-surface-container-lowest rounded-lg
                             ring-1 ring-outline-variant/20 focus-within:ring-primary/40
                             px-3 py-2 w-28 transition-all">
-              <span className="text-xs text-on-surface-variant mr-1">$</span>
+              <span className="text-xs text-on-surface-variant mr-1">MYR</span>
               <input
                 type="number"
                 min={0}
