@@ -8,7 +8,7 @@ import React, {
   ReactNode,
   useCallback,
 } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import {
   login as loginAction,
   logout as logoutAction,
@@ -33,6 +33,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const router = useRouter();
+  const pathname = usePathname();
+
+  // Reset isLoading whenever the route actually changes.
+  // This is the reliable signal that router.push() has completed —
+  // HRRoleGuard / EmployeeRoleGuard can then render their children.
+  useEffect(() => {
+    setIsLoading(false);
+  }, [pathname]);
 
   // 1. Verify session on app start — skip if a fresh cache entry exists
   useEffect(() => {
@@ -61,26 +69,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // 2. Login — calls server action which sets HttpOnly cookie
   const login = useCallback(
     async (email: string, password: string) => {
-      setIsLoading(true);
       try {
         const result = await loginAction(email, password);
 
         if (result.error) {
-          setIsLoading(false);
           throw new Error(result.error);
         }
 
+        // Trigger the loading overlay AFTER successful credential check
+        setIsLoading(true);
         _sessionCache = { user: result.user, ts: Date.now() };
         setUser(result.user);
-        setIsLoading(false);
 
-        // Redirect based on role
+        // Brief delay to show the loading experience, then redirect.
+        // NOTE: setIsLoading(false) is intentionally NOT called here.
+        // router.push() is non-blocking — it returns before the page actually
+        // changes. Calling setIsLoading(false) after it would drop the overlay
+        // while the user is still on the login page.
+        // The login component will simply unmount when navigation completes.
+        await new Promise(resolve => setTimeout(resolve, 1800));
+
         if (result.user?.role === "HR") {
           router.push("/hr/dashboard");
         } else {
           router.push("/employee/dashboard");
         }
       } catch (error) {
+        // Only reset loading on failure so the form becomes interactive again
         setIsLoading(false);
         throw error;
       }
