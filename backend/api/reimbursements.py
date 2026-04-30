@@ -437,6 +437,7 @@ async def analyze_reimbursement(
                     all_category=all_category,
                     session=bg_db,
                     document_ids=request.document_ids,
+                    is_auto_reimburse_enabled=request.is_auto_reimburse_enabled,
                     progress_callback=progress_callback,
                 )
                 logger.info("[API_ANALYZE_BG] Workflow returned reimbursement_id=%s", result.get("reimbursement_id"))
