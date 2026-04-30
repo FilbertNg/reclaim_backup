@@ -123,7 +123,6 @@ export function FilterPanel({
                       uppercase tracking-widest mb-2">
           Category
         </p>
-        {/* flex-nowrap + overflow-x-auto: single line, never wraps vertically */}
         <div className="flex flex-nowrap gap-2 overflow-x-auto pb-1
                         scrollbar-thin scrollbar-thumb-outline-variant/30 scrollbar-track-transparent">
           {allCategories.map((cat) => {
