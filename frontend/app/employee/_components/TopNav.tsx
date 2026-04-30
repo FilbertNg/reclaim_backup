@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import { getNotifications, markAllNotificationsRead } from "@/lib/actions/notifications";
 import type { Notification } from "@/lib/api/types";
@@ -71,9 +72,12 @@ export default function TopNav() {
       <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 w-full max-w-screen-2xl mx-auto gap-3">
 
         {/* ── Left: Brand (mobile) ─────────────────── */}
-        <span className="lg:hidden text-xl font-extrabold bg-linear-to-r from-primary to-tertiary bg-clip-text text-transparent font-headline tracking-tight">
-          Reclaim
-        </span>
+        <div className="lg:hidden flex items-center gap-2">
+          <Image src="/images/logo.svg" alt="Reclaim Logo" width={24} height={24} className="w-6 h-6 object-contain" />
+          <span className="text-xl font-extrabold bg-linear-to-r from-primary to-tertiary bg-clip-text text-transparent font-headline tracking-tight">
+            Reclaim
+          </span>
+        </div>
 
         {/* ── Center: Spacer ─────────────────── */}
         <div className="flex-1 hidden md:block"></div>

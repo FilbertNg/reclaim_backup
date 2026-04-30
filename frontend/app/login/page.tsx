@@ -6,6 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useAuth } from "@/context/AuthContext";
 import { Mail, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
+import Image from "next/image";
 
 const formSchema = z.object({
   email: z.string().email({ message: "Enter a valid email address." }),
@@ -28,13 +29,16 @@ function LoadingOverlay({ show }: { show: boolean }) {
   return (
     <div className="fixed inset-0 z-[10000] bg-surface flex flex-col items-center justify-center animate-in fade-in duration-300">
       {/* Logo */}
-      <h1 className="font-headline text-4xl font-black text-on-surface tracking-tighter select-none mb-2">
-        Reclaim<span className="text-primary">.</span>
-      </h1>
+      <div className="flex items-center gap-3 mb-2">
+        <Image src="/images/logo.svg" alt="Reclaim Logo" width={40} height={40} className="w-10 h-10 object-contain" priority />
+        <h1 className="font-headline text-4xl font-black text-on-surface tracking-tighter select-none">
+          Reclaim<span className="text-primary">.</span>
+        </h1>
+      </div>
 
       {/* Tagline */}
-      <p className="text-sm text-on-surface-variant font-body mb-10">
-        Signing you in{".".repeat(dots)}
+      <p className="text-sm text-on-surface-variant font-body mb-10 max-w-xs text-center">
+        Every receipt reviewed. Every decision yours.
       </p>
 
       {/* Slim progress bar */}
@@ -106,12 +110,15 @@ export default function LoginPage() {
             className="absolute inset-0 bg-[radial-gradient(circle_at_30%_40%,rgba(147,150,255,0.15),transparent_60%),radial-gradient(circle_at_70%_60%,rgba(158,0,180,0.12),transparent_60%)] opacity-40 mix-blend-overlay"
           ></div>
           <div className="relative z-10 text-on-primary max-w-xl">
-            <span className="inline-flex items-center rounded-full border border-white/35 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]">
-              AI-Assisted Reimbursements
+            <span className="inline-flex items-center rounded-full border border-white/35 bg-white/10 px-4 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] shadow-sm backdrop-blur-sm">
+              Every receipt reviewed. Every decision yours.
             </span>
-            <h1 className="font-headline text-5xl xl:text-6xl font-extrabold tracking-tight mt-4 mb-4 leading-tight">
-              Reclaim.
-            </h1>
+            <div className="flex items-center gap-4 mb-4">
+              <Image src="/images/logo.svg" alt="Reclaim Logo" width={64} height={64} className="w-16 h-16 object-contain brightness-0 invert" priority />
+              <h1 className="font-headline text-5xl xl:text-6xl font-extrabold tracking-tight leading-tight">
+                Reclaim.
+              </h1>
+            </div>
             <p className="text-base xl:text-lg opacity-90 font-light leading-relaxed max-w-lg text-justify">
               An AI expense platform that pairs OCR with an intelligent agent that thinks, evaluates, and proposes decisions for every claim. By enabling HR to operate through &quot;efficiency by exception,&quot; the agent auto-clears valid submissions and isolates only policy violations or suspicious edits for final human review, instantly turning scattered receipts into audit-ready data.
             </p>
@@ -127,11 +134,14 @@ export default function LoginPage() {
           <div className="w-full max-w-md my-auto py-8">
             {/* Brand Header (Mobile Only) */}
             <div className="lg:hidden mb-6 flex flex-col items-center justify-center gap-3 text-center">
-              <h2 className="font-headline text-2xl font-black tracking-tighter text-primary">
-                Reclaim
-              </h2>
-              <span className="inline-flex items-center rounded-full border border-white/35 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em]">
-                AI-Assisted Reimbursements
+              <div className="flex items-center gap-2.5">
+                <Image src="/images/logo.svg" alt="Reclaim Logo" width={32} height={32} className="w-8 h-8 object-contain" />
+                <h2 className="font-headline text-2xl font-black tracking-tighter text-primary">
+                  Reclaim
+                </h2>
+              </div>
+              <span className="inline-flex items-center rounded-full border border-white/35 bg-white/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.12em]">
+                Every receipt reviewed. Every decision yours.
               </span>
             </div>
 
@@ -204,7 +214,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
-      </main>
+    </main>
     </>
   );
 }

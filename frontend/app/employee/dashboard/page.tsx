@@ -53,6 +53,9 @@ export default function EmployeeDashboardPage() {
             <h2 className="font-headline text-3xl md:text-4xl font-extrabold text-on-surface tracking-tight mb-1.5">
               Welcome back, {firstName}.
             </h2>
+            <p className="text-on-surface-variant font-body text-sm font-medium italic opacity-80">
+              Every receipt reviewed. Every decision yours.
+            </p>
           </div>
 
           {/* Current date pill — visible on md+ */}

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Home } from "lucide-react";
+import Image from "next/image";
 
 // ─── Rolling Digit Component ──────────────────────────────────────────────────
 
@@ -178,6 +179,12 @@ export default function ErrorPage() {
       </div>
 
       <div className="relative z-10 flex flex-col items-center max-w-lg">
+        {/* Brand */}
+        <div className="flex items-center gap-2 mb-10 opacity-60">
+          <Image src="/images/logo.svg" alt="Reclaim Logo" width={24} height={24} className="w-6 h-6 object-contain" />
+          <span className="font-headline font-black text-lg text-primary tracking-tight">Reclaim</span>
+        </div>
+
         {/* Astronaut */}
         <AstronautCharacter />
 

@@ -76,6 +76,9 @@ export default function HRDashboardPage() {
           >
             HR Dashboard
           </h2>
+          <p className="text-primary font-body text-sm font-bold italic mb-4 tracking-wide">
+            Every receipt reviewed. Every decision yours.
+          </p>
           <p className="text-on-surface-variant text-lg font-body">
             Manage exceptions and review automated approvals.
           </p>
