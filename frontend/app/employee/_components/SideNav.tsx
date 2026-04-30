@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard,
@@ -33,12 +34,16 @@ export default function SideNav() {
         {/* ── Brand ─────────────────────────────────── */}
         <div className="px-4 py-5 mb-3">
           <div className="flex items-center gap-2.5">
+            <Image src="/images/logo.svg" alt="Reclaim Logo" width={28} height={28} className="w-7 h-7 object-contain" />
             <h1 className="font-headline font-black text-xl text-primary tracking-tight">
               Reclaim
             </h1>
           </div>
-          <p className="font-body text-xs font-medium text-on-surface-variant mt-1.5">
+          <p className="font-body text-xs font-medium text-on-surface-variant mt-1.5 leading-tight">
             Employee Portal
+          </p>
+          <p className="font-body text-[10px] text-primary/70 mt-1 font-medium italic">
+            Every receipt reviewed. Every decision yours.
           </p>
         </div>
 

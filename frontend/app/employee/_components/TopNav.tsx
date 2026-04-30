@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import { getNotifications, markAllNotificationsRead } from "@/lib/actions/notifications";
 import type { Notification } from "@/lib/api/types";
@@ -73,9 +74,12 @@ export default function TopNav() {
       <div className="flex items-center justify-between px-4 md:px-6 py-3 md:py-4 w-full max-w-screen-2xl mx-auto gap-3">
 
         {/* ── Left: Brand (mobile) ─────────────────── */}
-        <span className="lg:hidden text-xl font-extrabold bg-linear-to-r from-primary to-tertiary bg-clip-text text-transparent font-headline tracking-tight">
-          Reclaim
-        </span>
+        <div className="lg:hidden flex items-center gap-2">
+          <Image src="/images/logo.svg" alt="Reclaim Logo" width={24} height={24} className="w-6 h-6 object-contain" />
+          <span className="text-xl font-extrabold bg-linear-to-r from-primary to-tertiary bg-clip-text text-transparent font-headline tracking-tight">
+            Reclaim
+          </span>
+        </div>
 
         {/* ── Center: Search bar (md+) ──────────────── */}
         <div className="flex-1 max-w-sm hidden md:block relative z-60">
@@ -102,6 +106,9 @@ export default function TopNav() {
               <div className="absolute top-full mt-2 w-full bg-surface border border-outline-variant/20 rounded-xl shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-2">
                 <div className="p-4 text-center">
                   <Search className="w-5 h-5 text-on-surface-variant/40 mx-auto mb-1.5" />
+                  <p className="text-[10px] font-bold text-primary uppercase tracking-wider mb-1">
+                    Every receipt reviewed. Every decision yours.
+                  </p>
                   <p className="text-xs text-on-surface-variant">
                     Press Enter to search your claims history
                   </p>
